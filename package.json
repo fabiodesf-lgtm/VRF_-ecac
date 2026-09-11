@@ -1,0 +1,13 @@
+{
+  "name": "vrf-ecac",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Gestão de débitos e-CAC com cobrança automática por WhatsApp",
+  "packageManager": "pnpm@10.33.0",
+  "scripts": {
+    "dev": "pnpm --filter @vrf/web dev",
+    "build": "pnpm --filter @vrf/web build",
+    "lint": "pnpm --filter @vrf/web lint",
+    "typecheck": "pnpm --filter @vrf/web typecheck"
+  }
+}
