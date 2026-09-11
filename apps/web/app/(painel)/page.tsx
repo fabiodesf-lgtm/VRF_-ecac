@@ -70,14 +70,14 @@ export default async function Inicio() {
       </div>
 
       <Aviso tom="atencao">
-        <strong>Fases 0 a 5 concluídas.</strong> Cadastros, coleta no e-CAC, organização dos
-        débitos, régua de cobrança e o bot de resposta (1 / 1.2 / 2 / 3) estão implementados. O
-        DARF automático via SICALC é a Fase 6. Antes de apontar para clientes de verdade:{" "}
+        <strong>Sistema completo, travas fechadas.</strong> Cadastros, coleta no e-CAC, régua de
+        cobrança, bot de resposta e DARF via SICALC estão implementados. Antes de apontar para
+        clientes de verdade:{" "}
         <strong>
           o leitor do relatório do e-CAC ainda não foi conferido contra um relatório SITFIS real
-        </strong>{" "}
-        e o envio pelo WhatsApp começa em modo de teste — confira em Configurações antes de
-        liberar.
+        </strong>
+        , o envio pelo WhatsApp começa em modo de teste e toda emissão de DARF está em aprovação
+        manual. O que falta conferir está em <strong>Operação</strong>.
       </Aviso>
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">

@@ -140,3 +140,44 @@ falso de incidente.
    real.
 6. Só então trocar para `SERPRO_AMBIENTE=producao` e `INTEGRA_PROVIDER=serpro`,
    começando por 3 a 5 empresas.
+
+## Virada para produção: o que conferir antes
+
+A sequência acima cobre a integração. Esta lista cobre o resto — e existe porque
+"o worker está no ar" e "a cobrança está funcionando" são coisas diferentes.
+
+Abra **`/operacao`** no painel: ela verifica quase tudo abaixo e diz o que falta.
+Em `AMBIENTE=producao` ela trata como **crítico** rodar com provider de mentira,
+sem envio de WhatsApp, com o agendador desligado ou sem token de webhook —
+exatamente os quatro jeitos de ter um sistema que parece funcionar e não faz nada.
+
+**Configuração**
+
+- [ ] `AMBIENTE=producao`
+- [ ] `SCHEDULER_ATIVO=true` — sem isso nada roda sozinho
+- [ ] `INTEGRA_PROVIDER=serpro` e `SERPRO_AMBIENTE=producao`
+- [ ] `EVOLUTION_MODO=real`, com `EVOLUTION_BASE_URL`, `EVOLUTION_INSTANCE` e
+      `EVOLUTION_APIKEY`
+- [ ] `EVOLUTION_WEBHOOK_TOKEN` longo e aleatório, e o webhook apontado para
+      `/webhooks/evolution/<token>` — sem ele o bot não recebe nada, **inclusive
+      os pedidos de opt-out**
+- [ ] `CERT_MASTER_KEY` e `INTERNAL_API_SECRET` gerados com
+      `openssl rand -hex 32`, guardados fora do repositório e fora do Supabase
+- [ ] `atendimento.numero` ou `atendimento.grupo_jid` preenchido — senão o
+      encaminhamento da opção 3 não chega a ninguém
+- [ ] `envio.feriados` preenchido para o ano
+
+**Travas que devem continuar fechadas no primeiro dia**
+
+- [ ] `darf.teto_valor = 0` e `receitas_darf` vazia — toda emissão em aprovação
+      manual até o leitor ter sido conferido contra relatório real
+- [ ] `lgpd.retencao_ativa = false` até os prazos serem conferidos
+- [ ] `regua.exigir_consentimento = true`
+
+**Antes de apontar para clientes**
+
+- [ ] parser validado contra **relatório SITFIS real anonimizado**
+- [ ] envio testado para o **próprio número do escritório**
+- [ ] consentimento de WhatsApp registrado para cada empresa que vai receber
+- [ ] piloto com 3 a 5 empresas por uma semana, kill switch à mão
+- [ ] alguém no escritório sabe onde fica o [runbook](RUNBOOK.md)

@@ -12,6 +12,8 @@ const NAV = [
   { href: "/regua", rotulo: "Régua" },
   { href: "/darfs", rotulo: "DARFs" },
   { href: "/atendimento", rotulo: "Atendimento" },
+  { href: "/operacao", rotulo: "Operação" },
+  { href: "/lgpd", rotulo: "LGPD" },
 ];
 
 export default async function PainelLayout({ children }: { children: React.ReactNode }) {

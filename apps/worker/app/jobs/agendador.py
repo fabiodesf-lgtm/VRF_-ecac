@@ -9,6 +9,7 @@ Tarefas de relógio e um consumidor de fila:
 - **a cada 5 min** — despacha os avisos liberados (o despachante checa a janela);
 - **a cada hora** — devolve para `idle` as conversas cujo estado "aguardando"
   venceu;
+- **03:30 (São Paulo)** — aplica a política de retenção da LGPD;
 - **a cada 30 s** — drena a fila.
 
 O relógio usa America/Sao_Paulo, não UTC: "06:00" aqui significa 06:00 para quem
@@ -33,6 +34,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 from app.config import Settings
 from app.jobs.fila import drenar
 from app.jobs.tarefas_agendadas import (
+    aplicar_retencao,
     avaliar_a_regua,
     construir_contexto,
     despachar_a_regua,
@@ -87,6 +89,11 @@ def montar_agendador(engine: AsyncEngine, storage: Storage, settings: Settings) 
     async def ciclo_expirar_conversas() -> None:
         await expirar_conversas(engine)
 
+    async def ciclo_retencao() -> None:
+        removidos = await aplicar_retencao(engine, storage)
+        if removidos:
+            log.info("retenção: %d item(ns) expurgado(s)", removidos)
+
     agendador.add_job(
         ciclo_diario,
         CronTrigger(hour=6, minute=0, timezone=FUSO),
@@ -131,6 +138,16 @@ def montar_agendador(engine: AsyncEngine, storage: Storage, settings: Settings) 
         id="expirar_conversas",
         max_instances=1,
         coalesce=True,
+    )
+    # De madrugada: é a tarefa mais pesada do dia e não há por que competir com
+    # a janela de cobrança por conexão de banco.
+    agendador.add_job(
+        ciclo_retencao,
+        CronTrigger(hour=3, minute=30, timezone=FUSO),
+        id="retencao_lgpd",
+        misfire_grace_time=7200,
+        coalesce=True,
+        max_instances=1,
     )
     agendador.add_job(
         ciclo_da_fila,

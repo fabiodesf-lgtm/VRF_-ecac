@@ -9,7 +9,7 @@ recálculo, ciência e encaminhamento para atendimento humano.
 
 ## Estado
 
-**Fases 0 a 6 concluídas.** O que já funciona:
+**Fases 0 a 7 concluídas.** O que já funciona:
 
 - schema completo com RLS, auditoria e validação de CNPJ/CPF no banco;
 - autenticação da equipe (primeiro usuário entra como admin);
@@ -40,6 +40,11 @@ recálculo, ciência e encaminhamento para atendimento humano.
   fila de aprovação no painel;
 - **opt-out funcionando**: o cliente responde SAIR e para de receber, com o pedido
   registrado e os avisos pendentes cancelados;
+- **observabilidade**: tela de operação que responde "a cobrança está funcionando
+  hoje?", com alertas do que está prestes a quebrar;
+- **LGPD**: registro dos pedidos de titular com prazo, exportação dos dados de um
+  cliente em JSON, anonimização que preserva o registro fiscal, e política de
+  retenção com modo de simulação;
 - CI com lint, typecheck, testes e build.
 
 **A API do Integra Contador ainda não foi contratada.** Todo o acesso à SERPRO
@@ -71,6 +76,8 @@ configuração, e é decisão do escritório, receita por receita.
 | [`docs/REGUA.md`](docs/REGUA.md) | A régua de cobrança, as travas e o opt-out |
 | [`docs/BOT.md`](docs/BOT.md) | O bot de resposta, as opções 1/2/3 e o encaminhamento |
 | [`docs/DARF.md`](docs/DARF.md) | A emissão via SICALC e as travas que a seguram |
+| [`docs/RUNBOOK.md`](docs/RUNBOOK.md) | O que fazer quando algo quebra, por sintoma |
+| [`docs/LGPD.md`](docs/LGPD.md) | Inventário de dados, direitos do titular e retenção |
 | [`docs/evolution-api.md`](docs/evolution-api.md) | O gateway do WhatsApp e o risco de usar o não-oficial |
 
 ## Estrutura

@@ -19,10 +19,14 @@ from fastapi import APIRouter, File, Form, HTTPException, UploadFile, status
 from app.darf.emissao import EmissaoImpossivel, aprovar_darf
 from app.deps import EngineDep, IntegraDep, SettingsDep, StorageDep, WhatsappDep
 from app.integra.base import IntegraError
+from app.lgpd.anonimizacao import AnonimizacaoImpossivel, anonimizar_empresa
+from app.lgpd.exportacao import ExportacaoImpossivel, exportar_empresa
+from app.lgpd.retencao import executar as executar_retencao
 from app.regua.avaliacao import avaliar_regua
 from app.regua.despacho import despachar_avisos
 from app.security.certificado import CertificadoInvalido
 from app.services.certificados import ProcuradorNaoEncontrado, armazenar_certificado
+from app.services.diagnostico import diagnosticar
 from app.services.sincronizacao import (
     SincronizacaoImpossivel,
     reprocessar_relatorio,
@@ -253,6 +257,94 @@ async def aprovar(
         "darf_id": resultado.darf_id,
         "valor_total": str(resultado.valor_total) if resultado.valor_total else None,
         "motivo": resultado.motivo,
+    }
+
+
+@router.get("/diagnostico")
+async def diagnostico(
+    engine: EngineDep, settings: SettingsDep, whatsapp: WhatsappDep
+) -> dict[str, object]:
+    """Retrato da operação: o que está de pé e o que está prestes a quebrar.
+
+    Diferente de `/health`, que responde ao balanceador. Esta rota responde à
+    pergunta de uma pessoa: a cobrança está funcionando hoje? O worker pode estar
+    perfeitamente no ar com o certificado vencido e o WhatsApp fora — e nesse
+    estado nenhum cliente recebe nada.
+    """
+    resultado = await diagnosticar(engine, settings, whatsapp)
+    return resultado.como_dicionario()
+
+
+# ───────────────────────────────────────────────────────────────────────────
+# LGPD
+# ───────────────────────────────────────────────────────────────────────────
+
+
+@router.get("/lgpd/empresas/{empresa_id}/dados")
+async def exportar_dados(
+    empresa_id: str, engine: EngineDep, solicitado_por: str | None = None
+) -> dict[str, object]:
+    """Tudo que o sistema guarda sobre uma empresa, em JSON.
+
+    Atende os direitos de acesso e portabilidade (art. 18, II e V). A exportação
+    fica registrada em auditoria: um dump com a situação fiscal inteira de um
+    cliente saindo do sistema precisa deixar rastro de quem pediu.
+    """
+    try:
+        return await exportar_empresa(engine, empresa_id=empresa_id, solicitado_por=solicitado_por)
+    except ExportacaoImpossivel as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
+
+
+@router.post("/lgpd/empresas/{empresa_id}/anonimizar")
+async def anonimizar(
+    empresa_id: str, engine: EngineDep, motivo: str = "", solicitado_por: str | None = None
+) -> dict[str, object]:
+    """Remove o dado de contato de um cliente, preservando o registro fiscal.
+
+    **Irreversível.** O painel confirma antes; aqui não há como desfazer.
+    """
+    if not motivo.strip():
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            "informe o motivo: é ele que justifica a remoção num pedido de titular",
+        )
+    try:
+        resultado = await anonimizar_empresa(
+            engine, empresa_id=empresa_id, motivo=motivo, solicitado_por=solicitado_por
+        )
+    except AnonimizacaoImpossivel as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
+
+    return {
+        "ok": True,
+        "mensagem": resultado.resumo,
+        "ja_estava": resultado.ja_estava,
+        "mensagens_minimizadas": resultado.mensagens_minimizadas,
+        "conversas_removidas": resultado.conversas_removidas,
+    }
+
+
+@router.post("/lgpd/retencao")
+async def retencao(
+    engine: EngineDep, storage: StorageDep, simular: bool = True, forcar: bool = False
+) -> dict[str, object]:
+    """Aplica a política de retenção.
+
+    `simular=true` é o padrão **de propósito**: apagar é irreversível, e a forma
+    natural de conferir um prazo novo é ver quanto ele apagaria antes de apagar.
+    """
+    resultado = await executar_retencao(engine, storage, simular=simular, forcar=forcar)
+    return {
+        "ok": True,
+        "simulacao": resultado.simulacao,
+        "ativa": resultado.ativa,
+        "mensagem": resultado.resumo,
+        "mensagens_minimizadas": resultado.mensagens_minimizadas,
+        "relatorios_apagados": resultado.relatorios_apagados,
+        "darfs_apagados": resultado.darfs_apagados,
+        "auditoria_removida": resultado.auditoria_removida,
+        "empresas_anonimizadas": resultado.empresas_anonimizadas,
     }
 
 

@@ -26,6 +26,7 @@ from app.darf.emissao import EmissaoImpossivel, emitir_darf
 from app.db import transacao
 from app.integra.base import IntegraError, IntegraProvider
 from app.jobs.fila import Handler, Trabalho, enfileirar
+from app.lgpd.retencao import executar as executar_retencao
 from app.regua.avaliacao import avaliar_regua
 from app.regua.despacho import despachar_avisos
 from app.services.sincronizacao import SincronizacaoImpossivel, sincronizar_empresa
@@ -391,6 +392,25 @@ async def expirar_conversas(engine: AsyncEngine) -> int:
     if expiradas:
         log.info("%d conversa(s) voltaram para idle por expiração", len(expiradas))
     return len(expiradas)
+
+
+# ───────────────────────────────────────────────────────────────────────────
+# Retenção (LGPD)
+# ───────────────────────────────────────────────────────────────────────────
+
+
+async def aplicar_retencao(engine: AsyncEngine, storage: Storage) -> int:
+    """Expurga o que passou do prazo. Devolve quantos itens saíram.
+
+    Roda de madrugada, longe da janela de envio: é a tarefa mais pesada do dia e
+    não há por que competir com a cobrança por conexão de banco.
+
+    Não faz nada enquanto `lgpd.retencao_ativa` estiver `false`, que é o padrão.
+    Apagar é irreversível, e os prazos precisam ser conferidos antes do primeiro
+    expurgo — o próprio serviço trata isso.
+    """
+    resultado = await executar_retencao(engine, storage)
+    return resultado.total
 
 
 # ───────────────────────────────────────────────────────────────────────────

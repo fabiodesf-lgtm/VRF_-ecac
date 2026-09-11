@@ -185,6 +185,26 @@ update public.configuracoes set valor = '50000'::jsonb where chave = 'darf.teto_
 
 O detalhe está em [`DARF.md`](DARF.md).
 
+### Operação e LGPD
+
+As travas de RLS são verificadas varrendo o catálogo do Postgres — uma tabela
+nova entra na verificação automaticamente:
+
+```bash
+cd apps/worker && pytest tests/test_rls.py tests/test_lgpd.py -q
+```
+
+O retrato da operação sai por rota interna e alimenta a tela `/operacao`:
+
+```bash
+curl .../internal/diagnostico        # assinado; veja lib/worker.ts
+curl -X POST '.../internal/lgpd/retencao?simular=true'
+```
+
+A retenção nasce desligada e o padrão da rota é **simular**: apagar é
+irreversível. O detalhe está em [`LGPD.md`](LGPD.md), e o que fazer quando algo
+quebra em [`RUNBOOK.md`](RUNBOOK.md).
+
 Disparo manual, sem esperar o agendador:
 
 ```python
@@ -255,6 +275,9 @@ await verificar_certificados(engine)
 | 4 — Régua D+, envio pelo Evolution e opt-out | ✅ |
 | 5 — Bot de resposta (1 / 1.2 / 2 / 3 e encaminhamento) | ✅ |
 | 6 — DARF via SICALC, com teto, fila de aprovação e auditoria | ✅ |
-| 7 — Observabilidade, LGPD, hardening | ⬜ |
+| 7 — Observabilidade, LGPD, runbook e hardening | ✅ |
+
+A virada para a SERPRO real ainda depende da contratação da API; o que conferir
+antes está em [`integra-contador.md`](integra-contador.md).
 
 Detalhe de cada fase em [`PLANO.md`](PLANO.md).

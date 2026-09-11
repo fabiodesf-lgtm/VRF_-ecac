@@ -356,6 +356,56 @@ def test_reprocessar_consulta_inexistente_devolve_404(cliente: TestClient) -> No
 
 
 # ───────────────────────────────────────────────────────────────────────────
+# Diagnóstico e LGPD
+# ───────────────────────────────────────────────────────────────────────────
+
+
+def test_diagnostico_responde_o_retrato_da_operacao(cliente: TestClient) -> None:
+    ts = str(time.time())
+    caminho = "/internal/diagnostico"
+    sig = assinar(SEGREDO, "GET", caminho, b"", ts)
+    resp = cliente.get(caminho, headers={"x-vrf-timestamp": ts, "x-vrf-signature": sig})
+
+    assert resp.status_code == 200, resp.text
+    corpo = resp.json()
+    assert "metricas" in corpo and "alertas" in corpo
+    assert corpo["ambiente"]["integra_provider"] == "mock"
+    # Métrica que o painel lê tem de existir com este nome exato.
+    assert "debitos_abertos" in corpo["metricas"]
+
+
+def test_retencao_simula_por_padrao(cliente: TestClient) -> None:
+    """Apagar é irreversível: o padrão tem de ser contar, não apagar."""
+    resp = _assinar_post(cliente, "/internal/lgpd/retencao")
+    assert resp.status_code == 200, resp.text
+    corpo = resp.json()
+    assert corpo["simulacao"] is True
+    # A retenção nasce desligada; a rota diz isso em vez de fingir que rodou.
+    assert corpo["ativa"] is False
+
+
+def test_anonimizar_exige_motivo(cliente: TestClient) -> None:
+    """O motivo é o que justifica a remoção num pedido de titular."""
+    resp = _assinar_post(cliente, f"/internal/lgpd/empresas/{uuid.uuid4()}/anonimizar")
+    assert resp.status_code == 422
+    assert "motivo" in resp.json()["detail"]
+
+
+def test_exportar_empresa_inexistente_devolve_404(cliente: TestClient) -> None:
+    ts = str(time.time())
+    caminho = f"/internal/lgpd/empresas/{uuid.uuid4()}/dados"
+    sig = assinar(SEGREDO, "GET", caminho, b"", ts)
+    resp = cliente.get(caminho, headers={"x-vrf-timestamp": ts, "x-vrf-signature": sig})
+    assert resp.status_code == 404
+
+
+def test_lgpd_exige_assinatura(cliente: TestClient) -> None:
+    """Exportar dados de um cliente sem HMAC seria um vazamento por desenho."""
+    assert cliente.get(f"/internal/lgpd/empresas/{uuid.uuid4()}/dados").status_code == 401
+    assert cliente.post("/internal/lgpd/retencao").status_code == 401
+
+
+# ───────────────────────────────────────────────────────────────────────────
 # Aprovação de DARF
 # ───────────────────────────────────────────────────────────────────────────
 
@@ -473,11 +523,19 @@ def test_webhook_processa_opt_out_ponta_a_ponta(
     import asyncio
 
     numero = "5511955554444"
+    # Id único por execução. A Evolution nunca reutiliza id de mensagem, e um id
+    # fixo aqui fazia o teste passar na primeira rodada e falhar na segunda: a
+    # linha em `mensagens` sobrevive ao delete da empresa (ON DELETE SET NULL),
+    # e a deduplicação do webhook — corretamente — recusava o reenvio.
+    mid = f"OPTOUT-{uuid.uuid4().hex[:12]}"
 
     async def criar() -> str:
         motor = create_async_engine(DATABASE_URL)
         try:
             async with motor.begin() as conexao:
+                await conexao.execute(
+                    text("delete from public.mensagens where whatsapp = :w"), {"w": numero}
+                )
                 await conexao.execute(
                     text("delete from public.empresas where whatsapp = :w"), {"w": numero}
                 )
@@ -503,7 +561,7 @@ def test_webhook_processa_opt_out_ponta_a_ponta(
 
     resp = cliente_com_webhook.post(
         f"/webhooks/evolution/{TOKEN_WEBHOOK}",
-        json=payload_webhook("SAIR", numero=numero, mid="OPTOUT1"),
+        json=payload_webhook("SAIR", numero=numero, mid=mid),
     )
     assert resp.status_code == 200
     assert resp.json()["acao"] == "opt_out"

@@ -234,6 +234,93 @@ export async function reprocessarConsulta(
   );
 }
 
+export type AlertaDiagnostico = {
+  nivel: "critico" | "atencao";
+  titulo: string;
+  detalhe: string;
+};
+
+export type Diagnostico = {
+  ok: boolean;
+  ambiente: Record<string, string | boolean>;
+  metricas: Record<string, number | string | null>;
+  alertas: AlertaDiagnostico[];
+};
+
+/**
+ * Retrato da operação.
+ *
+ * Diferente de `saudeWorker`, que responde "o processo está de pé". Esta rota
+ * responde à pergunta de uma pessoa: a cobrança está funcionando hoje? O worker
+ * pode estar no ar com o certificado vencido e o WhatsApp fora — e nesse estado
+ * nenhum cliente recebe nada.
+ */
+export async function diagnosticoOperacao(): Promise<Diagnostico | null> {
+  try {
+    return await chamarGet("/internal/diagnostico");
+  } catch (erro) {
+    // O painel não pode quebrar porque o worker está fora — é justamente quando
+    // alguém abre esta tela.
+    console.error("diagnóstico indisponível:", erro);
+    return null;
+  }
+}
+
+export type ResultadoRetencao = {
+  ok: boolean;
+  simulacao: boolean;
+  ativa: boolean;
+  mensagem: string;
+  mensagens_minimizadas: number;
+  relatorios_apagados: number;
+  darfs_apagados: number;
+  auditoria_removida: number;
+  empresas_anonimizadas: number;
+};
+
+/** Aplica (ou simula) a política de retenção da LGPD. */
+export async function aplicarRetencao(simular: boolean): Promise<ResultadoRetencao> {
+  return chamar(
+    "POST",
+    `/internal/lgpd/retencao?simular=${simular}`,
+    Buffer.alloc(0),
+    "application/json",
+  );
+}
+
+/** Tudo que o sistema guarda sobre uma empresa, em JSON. */
+export async function exportarDadosEmpresa(
+  empresaId: string,
+  solicitadoPor: string,
+): Promise<Record<string, unknown>> {
+  return chamarGet(
+    `/internal/lgpd/empresas/${empresaId}/dados?solicitado_por=${encodeURIComponent(solicitadoPor)}`,
+  );
+}
+
+export type ResultadoAnonimizacao = {
+  ok: boolean;
+  mensagem: string;
+  ja_estava: boolean;
+  mensagens_minimizadas: number;
+  conversas_removidas: number;
+};
+
+/** Remove o dado de contato de um cliente. **Irreversível.** */
+export async function anonimizarEmpresa(
+  empresaId: string,
+  motivo: string,
+  solicitadoPor: string,
+): Promise<ResultadoAnonimizacao> {
+  const query = new URLSearchParams({ motivo, solicitado_por: solicitadoPor });
+  return chamar(
+    "POST",
+    `/internal/lgpd/empresas/${empresaId}/anonimizar?${query}`,
+    Buffer.alloc(0),
+    "application/json",
+  );
+}
+
 export type ResultadoAprovacaoDarf = {
   ok: boolean;
   status: string;

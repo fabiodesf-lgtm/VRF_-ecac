@@ -238,6 +238,7 @@ export type Database = {
           motivo_aprovacao: string | null;
           tentativas: number;
           enviado_em: string | null;
+          pdf_apagado_em: string | null;
         };
         Insert: {
           id?: string;
@@ -262,6 +263,7 @@ export type Database = {
           motivo_aprovacao?: string | null;
           tentativas?: number;
           enviado_em?: string | null;
+          pdf_apagado_em?: string | null;
         };
         Update: {
           id?: string;
@@ -286,6 +288,7 @@ export type Database = {
           motivo_aprovacao?: string | null;
           tentativas?: number;
           enviado_em?: string | null;
+          pdf_apagado_em?: string | null;
         };
         Relationships: [
           {
@@ -494,6 +497,8 @@ export type Database = {
           updated_at: string;
           opt_out_em: string | null;
           opt_out_origem: string | null;
+          encerrado_em: string | null;
+          anonimizado_em: string | null;
         };
         Insert: {
           id?: string;
@@ -512,6 +517,8 @@ export type Database = {
           updated_at?: string;
           opt_out_em?: string | null;
           opt_out_origem?: string | null;
+          encerrado_em?: string | null;
+          anonimizado_em?: string | null;
         };
         Update: {
           id?: string;
@@ -530,6 +537,8 @@ export type Database = {
           updated_at?: string;
           opt_out_em?: string | null;
           opt_out_origem?: string | null;
+          encerrado_em?: string | null;
+          anonimizado_em?: string | null;
         };
         Relationships: [
           {
@@ -668,6 +677,7 @@ export type Database = {
           enviado_em: string | null;
           created_at: string;
           updated_at: string;
+          minimizado_em: string | null;
         };
         Insert: {
           id?: string;
@@ -684,6 +694,7 @@ export type Database = {
           enviado_em?: string | null;
           created_at?: string;
           updated_at?: string;
+          minimizado_em?: string | null;
         };
         Update: {
           id?: string;
@@ -700,6 +711,7 @@ export type Database = {
           enviado_em?: string | null;
           created_at?: string;
           updated_at?: string;
+          minimizado_em?: string | null;
         };
         Relationships: [
           {
@@ -945,6 +957,7 @@ export type Database = {
           erro: string | null;
           iniciado_em: string;
           concluido_em: string | null;
+          pdf_apagado_em: string | null;
         };
         Insert: {
           id?: string;
@@ -961,6 +974,7 @@ export type Database = {
           erro?: string | null;
           iniciado_em?: string;
           concluido_em?: string | null;
+          pdf_apagado_em?: string | null;
         };
         Update: {
           id?: string;
@@ -977,6 +991,7 @@ export type Database = {
           erro?: string | null;
           iniciado_em?: string;
           concluido_em?: string | null;
+          pdf_apagado_em?: string | null;
         };
         Relationships: [
           {
@@ -991,6 +1006,69 @@ export type Database = {
             columns: ["procurador_id"];
             isOneToOne: false;
             referencedRelation: "procuradores";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      solicitacoes_lgpd: {
+        Row: {
+          id: string;
+          empresa_id: string | null;
+          tipo: Database["public"]["Enums"]["solicitacao_lgpd_tipo"];
+          status: Database["public"]["Enums"]["solicitacao_lgpd_status"];
+          solicitante: string;
+          canal: string | null;
+          detalhe: string | null;
+          resposta: string | null;
+          prazo_em: string | null;
+          atendido_em: string | null;
+          atendido_por: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          empresa_id?: string | null;
+          tipo: Database["public"]["Enums"]["solicitacao_lgpd_tipo"];
+          status?: Database["public"]["Enums"]["solicitacao_lgpd_status"];
+          solicitante: string;
+          canal?: string | null;
+          detalhe?: string | null;
+          resposta?: string | null;
+          prazo_em?: string | null;
+          atendido_em?: string | null;
+          atendido_por?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          empresa_id?: string | null;
+          tipo?: Database["public"]["Enums"]["solicitacao_lgpd_tipo"];
+          status?: Database["public"]["Enums"]["solicitacao_lgpd_status"];
+          solicitante?: string;
+          canal?: string | null;
+          detalhe?: string | null;
+          resposta?: string | null;
+          prazo_em?: string | null;
+          atendido_em?: string | null;
+          atendido_por?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "solicitacoes_lgpd_atendido_por_fkey";
+            columns: ["atendido_por"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "solicitacoes_lgpd_empresa_id_fkey";
+            columns: ["empresa_id"];
+            isOneToOne: false;
+            referencedRelation: "empresas";
             referencedColumns: ["id"];
           },
         ];
@@ -1204,6 +1282,34 @@ export type Database = {
         };
         Relationships: [];
       };
+      metricas_operacao: {
+        Row: {
+          empresas_ativas: number | null;
+          empresas_cobraveis: number | null;
+          empresas_opt_out: number | null;
+          debitos_abertos: number | null;
+          debitos_baixa_confianca: number | null;
+          total_aberto: number | null;
+          avisos_24h: number | null;
+          avisos_pendentes: number | null;
+          avisos_falhados_7d: number | null;
+          envios_falhados_24h: number | null;
+          conversas_humano: number | null;
+          darfs_aguardando: number | null;
+          darfs_falhados_7d: number | null;
+          tarefas_abertas: number | null;
+          jobs_pendentes: number | null;
+          jobs_falhados_7d: number | null;
+          jobs_travados: number | null;
+          certificados_vencidos: number | null;
+          certificados_vencendo: number | null;
+          consultas_com_erro_7d: number | null;
+          ultima_sincronizacao: string | null;
+          solicitacoes_lgpd_abertas: number | null;
+          solicitacoes_lgpd_atrasadas: number | null;
+        };
+        Relationships: [];
+      };
       resumo_faixas: {
         Row: {
           faixa_atraso: Database["public"]["Enums"]["faixa_atraso"] | null;
@@ -1239,6 +1345,8 @@ export type Database = {
       procurador_tipo: "ecpf" | "ecnpj";
       receita_periodicidade: "mensal" | "trimestral" | "anual" | "quinzenal" | "decendial" | "unica";
       sitfis_status: "solicitado" | "aguardando" | "concluido" | "erro" | "expirado";
+      solicitacao_lgpd_status: "aberta" | "em_andamento" | "atendida" | "recusada";
+      solicitacao_lgpd_tipo: "acesso" | "portabilidade" | "correcao" | "eliminacao" | "revogacao_consentimento";
       tarefa_status: "aberta" | "em_andamento" | "resolvida" | "cancelada";
       tarefa_tipo: "recalculo" | "falar_humano" | "erro_certificado" | "certificado_vencendo" | "erro_sitfis" | "parse_baixa_confianca" | "erro_darf" | "aprovacao_darf" | "numero_desconhecido" | "falha_envio";
     };
