@@ -7,8 +7,8 @@ Dois hoje:
   procurador: certificado vencido derruba a consulta de todas as empresas
   vinculadas a ele, e descobrir isso no dia é tarde.
 
-A régua de cobrança e o envio pelo WhatsApp entram na Fase 4; este módulo só
-mantém os dados frescos.
+Somam-se a eles a avaliação e o despacho da régua de cobrança e a expiração dos
+estados do bot.
 """
 
 from __future__ import annotations
@@ -258,6 +258,93 @@ async def despachar_a_regua(engine: AsyncEngine, whatsapp: Whatsapp) -> int:
     """Envia os avisos liberados. As travas todas estão no despachante."""
     resultado = await despachar_avisos(engine, whatsapp)
     return resultado.enviados
+
+
+# ───────────────────────────────────────────────────────────────────────────
+# Expiração dos estados do bot
+# ───────────────────────────────────────────────────────────────────────────
+
+
+async def expirar_conversas(engine: AsyncEngine) -> int:
+    """Devolve para `idle` as conversas cujo estado "aguardando" venceu.
+
+    O bot já trata a expiração quando o cliente escreve — mas o caso que importa
+    é o outro: o cliente que **não** escreve mais. Sem este job, uma conversa
+    ficaria para sempre em `aguardando_data_recalculo`, e a próxima mensagem dela,
+    meses depois, seria lida como a resposta àquela pergunta.
+
+    Quem estava em `aguardando_data_recalculo` deixa uma tarefa: o cliente pediu
+    recálculo e não informou a data. Isso é um pedido em aberto, não um silêncio —
+    a diferença entre um lead atendido e um cliente que desistiu sozinho.
+    """
+    async with transacao(engine) as conexao:
+        expiradas = (
+            await conexao.execute(
+                text(
+                    """
+                    -- O RETURNING de um UPDATE devolve a linha NOVA, e aqui é o
+                    -- estado ANTERIOR que decide se cabe tarefa. Daí o CTE: ele
+                    -- lê o estado antes de a atualização acontecer.
+                    with alvo as (
+                        select id, empresa_id, estado::text as estado_anterior
+                          from public.conversas
+                         where expira_em is not null
+                           and expira_em <= now()
+                           and estado in ('aguardando_opcao', 'aguardando_data_recalculo')
+                         for update
+                    ), atualizadas as (
+                        update public.conversas c
+                           set estado = 'idle',
+                               expira_em = null,
+                               tentativas_invalidas = 0
+                          from alvo
+                         where c.id = alvo.id
+                        returning c.id
+                    )
+                    select a.id::text         as id,
+                           a.empresa_id::text as empresa_id,
+                           a.estado_anterior,
+                           e.razao_social
+                      from alvo a
+                      left join public.empresas e on e.id = a.empresa_id
+                    """
+                )
+            )
+        ).all()
+
+        for conversa in expiradas:
+            if conversa.estado_anterior != "aguardando_data_recalculo":
+                continue
+            if not conversa.empresa_id:
+                continue
+            await conexao.execute(
+                text(
+                    """
+                    insert into public.tarefas
+                        (tipo, titulo, detalhe, empresa_id, conversa_id, chave_dedupe)
+                    values ('recalculo', :titulo, :detalhe,
+                            cast(:empresa as uuid), cast(:conversa as uuid), :chave)
+                    on conflict (chave_dedupe) do nothing
+                    """
+                ),
+                {
+                    "titulo": (f"{conversa.razao_social} pediu recálculo e não informou a data")[
+                        :200
+                    ],
+                    "detalhe": (
+                        "O cliente escolheu a opção 1 no WhatsApp e o prazo para "
+                        "informar a data de pagamento venceu. Vale um contato: o "
+                        "pedido de recálculo ficou em aberto."
+                    ),
+                    "empresa": conversa.empresa_id,
+                    "conversa": conversa.id,
+                    "chave": f"recalculo_sem_data:{conversa.id}",
+                },
+            )
+
+    if expiradas:
+        log.info("%d conversa(s) voltaram para idle por expiração", len(expiradas))
+    return len(expiradas)
 
 
 # ───────────────────────────────────────────────────────────────────────────

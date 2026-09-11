@@ -111,6 +111,8 @@ class ConfigEnvio:
     max_avisos_dia: int
     max_debitos_listados: int
     kill_switch: bool
+    # Validade do estado "aguardando resposta" que o envio deixa na conversa.
+    expira_estado_horas: int
 
 
 async def despachar_avisos(
@@ -256,7 +258,7 @@ async def _despachar_um(
         return "falhou"
 
     async with transacao(engine) as conexao:
-        await _concluir_aviso(conexao, aviso_id, dados, corpo, enviada.message_id)
+        await _concluir_aviso(conexao, aviso_id, dados, corpo, enviada.message_id, config)
         await registrar_auditoria(
             conexao,
             acao="regua.aviso_enviado",
@@ -452,6 +454,7 @@ async def _concluir_aviso(
     dados: AvisoParaEnviar,
     corpo: str,
     message_id: str,
+    config: ConfigEnvio,
 ) -> None:
     mensagem_id = (
         await conexao.execute(
@@ -492,20 +495,22 @@ async def _concluir_aviso(
         {"a": aviso_id},
     )
 
-    # A conversa passa a esperar a resposta do cliente (opções 1/2/3). O bot que
-    # interpreta essas respostas é a Fase 5; o estado é gravado agora para que a
-    # resposta que chegar antes disso não seja perdida.
+    # A conversa passa a esperar a resposta do cliente (opções 1/2/3), com prazo:
+    # uma resposta que chega dias depois não é resposta a este aviso, e
+    # interpretá-la como tal faria o bot perguntar "para qual data?" sem contexto.
     await conexao.execute(
         text(
             """
             insert into public.conversas
-                (empresa_id, whatsapp, estado, contexto, ultima_mensagem_em)
+                (empresa_id, whatsapp, estado, contexto, expira_em, ultima_mensagem_em)
             values (cast(:e as uuid), :whatsapp, 'aguardando_opcao',
-                    cast(:contexto as jsonb), now())
+                    cast(:contexto as jsonb),
+                    now() + make_interval(hours => :horas), now())
             on conflict (whatsapp) do update set
                 empresa_id = excluded.empresa_id,
                 estado = 'aguardando_opcao',
                 contexto = excluded.contexto,
+                expira_em = excluded.expira_em,
                 tentativas_invalidas = 0,
                 ultima_mensagem_em = now()
             """
@@ -514,6 +519,7 @@ async def _concluir_aviso(
             "e": dados.empresa_id,
             "whatsapp": dados.whatsapp,
             "contexto": json.dumps({"aviso_id": aviso_id, "marco": dados.marco}),
+            "horas": config.expira_estado_horas,
         },
     )
 
@@ -595,7 +601,8 @@ async def _ler_config(conexao: AsyncConnection) -> ConfigEnvio:
         await conexao.execute(
             text(
                 "select chave, valor from public.configuracoes "
-                "where chave like 'envio.%' or chave like 'regua.%'"
+                "where chave like 'envio.%' or chave like 'regua.%' "
+                "or chave like 'bot.%'"
             )
         )
     ).all()
@@ -618,6 +625,7 @@ async def _ler_config(conexao: AsyncConnection) -> ConfigEnvio:
         max_avisos_dia=int(numero("envio.max_avisos_dia", 300)),
         max_debitos_listados=int(numero("envio.max_debitos_listados", 5)),
         kill_switch=bruto.get("regua.kill_switch") is True,
+        expira_estado_horas=int(numero("bot.expira_estado_horas", 48)),
     )
 
 

@@ -9,7 +9,7 @@ recálculo, ciência e encaminhamento para atendimento humano.
 
 ## Estado
 
-**Fases 0 a 4 concluídas.** O que já funciona:
+**Fases 0 a 5 concluídas.** O que já funciona:
 
 - schema completo com RLS, auditoria e validação de CNPJ/CPF no banco;
 - autenticação da equipe (primeiro usuário entra como admin);
@@ -30,6 +30,10 @@ recálculo, ciência e encaminhamento para atendimento humano.
 - **régua de cobrança** por WhatsApp em D+5/15/30/60/90, com agrupamento (um
   cliente com doze débitos recebe uma mensagem), janela de horário, intervalo
   entre envios, teto diário e kill switch;
+- **bot de resposta**: interpreta 1 (recálculo) → 1.2 (para qual data?), 2
+  (ciente) e 3 (falar com humano), com reconhecimento tolerante de opção e data,
+  limite de tentativas antes de chamar uma pessoa, encaminhamento para o
+  número/grupo de atendimento e expiração do estado em 48h;
 - **opt-out funcionando**: o cliente responde SAIR e para de receber, com o pedido
   registrado e os avisos pendentes cancelados;
 - CI com lint, typecheck, testes e build.
@@ -44,9 +48,9 @@ O envio fica em `EVOLUTION_MODO=mock` por padrão: a régua roda inteira e regis
 tudo, mas **nenhuma mensagem sai do worker** até alguém configurar a Evolution API
 e trocar para `real`.
 
-O bot que interpreta as respostas 1 / 2 / 3 é a **Fase 5**. Até então, qualquer
-resposta que não seja opt-out pausa a régua daquele cliente e abre uma tarefa para
-atendimento humano — perder um pedido de recálculo seria pior que não ter bot.
+A emissão automática do DARF via SICALC é a **Fase 6**. Hoje o pedido de recálculo
+do cliente — com a data que ele informou — é registrado e vira tarefa no painel;
+quem calcula e envia o DARF é uma pessoa.
 
 ## Documentação
 
@@ -59,6 +63,7 @@ atendimento humano — perder um pedido de recálculo seria pior que não ter bo
 | [`docs/PARSER.md`](docs/PARSER.md) | O parser do relatório e as proteções contra cobrança errada |
 | [`docs/OPERACAO.md`](docs/OPERACAO.md) | O que roda sozinho, as travas de custo e como intervir |
 | [`docs/REGUA.md`](docs/REGUA.md) | A régua de cobrança, as travas e o opt-out |
+| [`docs/BOT.md`](docs/BOT.md) | O bot de resposta, as opções 1/2/3 e o encaminhamento |
 | [`docs/evolution-api.md`](docs/evolution-api.md) | O gateway do WhatsApp e o risco de usar o não-oficial |
 
 ## Estrutura

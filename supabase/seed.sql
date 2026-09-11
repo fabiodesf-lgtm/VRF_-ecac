@@ -61,20 +61,32 @@ insert into public.templates (chave, titulo, corpo, descricao) values
 (
   'handoff_cliente',
   'Encaminhamento para atendimento (cliente)',
-  E'Claro, {{razao_social}}! Vou te transferir para nossa equipe. 🧑‍💼\n\nUm de nossos atendentes falará com você em breve no horário comercial.\n\nSe preferir falar agora, chame direto: {{link_atendimento}}\n\n_Os avisos automáticos ficam pausados enquanto você estiver em atendimento._',
+  E'Claro, {{razao_social}}! Vou te transferir para nossa equipe. 🧑‍💼\n\nUm de nossos atendentes falará com você em breve, no horário comercial.{{link_atendimento}}\n\n_Os avisos automáticos ficam pausados enquanto você estiver em atendimento._',
   'Enviado ao cliente após a opção 3.'
 ),
 (
   'handoff_interno',
   'Encaminhamento para atendimento (equipe)',
-  E'🔔 *Atendimento solicitado*\n\n*Cliente:* {{razao_social}}\n*CNPJ:* {{cnpj}}\n*WhatsApp:* {{whatsapp}}\n\n*Débitos em aberto:* {{qtd_debitos}} — total {{total}}\n{{lista_debitos}}\n\nÚltimo aviso enviado: {{marco_dias}} dias após o vencimento.\nO bot está pausado para este cliente.',
+  E'🔔 *Atendimento solicitado*\n\n*Cliente:* {{razao_social}}\n*CNPJ:* {{cnpj}}\n*WhatsApp:* {{whatsapp}}\n\n*Motivo:* {{motivo}}\n*Última mensagem:* "{{ultima_mensagem}}"\n\n*Débitos em aberto:* {{qtd_debitos}} — total {{total}}\n{{lista_debitos}}\n\nO bot está pausado para este cliente até alguém retomar no painel.',
   'Enviado ao número/grupo de atendimento do escritório após a opção 3.'
 ),
 (
   'data_invalida',
-  'Data não reconhecida',
-  E'Não consegui entender a data. Responda no formato *DD/MM/AAAA*, com uma data de hoje em diante (por exemplo: {{exemplo_data}}).',
-  'Enviado quando a data informada é inválida ou está no passado.'
+  'Data não aceita',
+  E'Não consegui usar essa data: {{motivo}}.\n\nResponda no formato *DD/MM/AAAA*, de hoje em diante (por exemplo: {{exemplo_data}}).',
+  'Enviado quando a data informada não pode ser usada na consolidação do DARF.'
+),
+(
+  'darf_solicitado',
+  'Recálculo registrado (aguardando o DARF)',
+  E'Anotado, {{razao_social}}! Vamos recalcular seus débitos para *{{data_recalculo}}*.\n\nVocê receberá o DARF atualizado por aqui. Se precisar de outra data, basta responder esta conversa.',
+  'Enviado quando o cliente informa a data do recálculo. O DARF em si é gerado na Fase 6.'
+),
+(
+  'fora_do_horario',
+  'Encaminhamento fora do horário de atendimento',
+  E'Recebemos sua mensagem, {{razao_social}}. 🕐\n\nNosso atendimento é de {{janela_inicio}} às {{janela_fim}}, em dias úteis — um de nossos atendentes falará com você no próximo horário comercial.{{link_atendimento}}\n\n_Os avisos automáticos ficam pausados enquanto você estiver em atendimento._',
+  'Enviado ao cliente no lugar de handoff_cliente quando o pedido chega fora da janela de envio.'
 ),
 (
   'darf_enviado',

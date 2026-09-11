@@ -129,16 +129,18 @@ identificamos 0 débito(s)" é pior que não mandar nada.
 
 Todo aviso termina com "responda SAIR para não receber mais estes avisos".
 
-O tratamento dessa resposta está implementado (`app/bot/entrada.py`), e é o único
-pedaço do bot que existe antes da Fase 5 — prometer o opt-out sem honrá-lo é uma
-promessa falsa ao cliente e um problema de LGPD, não algo que se deixa para a
-fase seguinte.
+O tratamento dessa resposta está em `app/bot/entrada.py` e vale em **qualquer**
+estado da conversa, inclusive durante atendimento humano: prometer o opt-out sem
+honrá-lo é uma promessa falsa ao cliente e um problema de LGPD.
 
 - a lista de palavras aceitas é **generosa** (`sair`, `parar`, `cancelar`,
-  `descadastrar`, `stop`, `não quero`, …, com e sem acento ou pontuação): recusar
-  um opt-out por variação de escrita é o pior erro possível aqui, e o custo de um
-  falso positivo é apenas parar de cobrar por WhatsApp;
+  `descadastrar`, `stop`, `não quero mais`, …, com e sem acento ou pontuação):
+  recusar um opt-out por variação de escrita é o pior erro possível aqui, e o
+  custo de um falso positivo é apenas parar de cobrar por WhatsApp;
 - frase longa contendo a palavra **não** conta ("vou sair de viagem…");
+- `não quero` isolado **também não** conta: em resposta ao menu isso significa
+  "não quero recálculo", que é a opção 2. Tratá-lo como opt-out desligaria a
+  cobrança de quem só recusou o recálculo;
 - o pedido desliga os avisos, grava `opt_out_em` e `opt_out_origem`, **cancela os
   avisos que já estavam na fila** e confirma ao cliente;
 - se a confirmação falhar, o opt-out **continua aplicado**: o que importa é ter
@@ -148,17 +150,16 @@ fase seguinte.
 decisão do escritório; religá-lo sem ver o primeiro apagaria um pedido expresso do
 cliente.
 
-## ⚠️ O que ainda não existe
+## O que acontece com a resposta
 
 O bot que interpreta **1** (recálculo), **1.2** (data), **2** (ciente) e **3**
-(falar com humano) é a **Fase 5**. Até lá, qualquer resposta que não seja opt-out:
+(falar com humano) está em [`docs/BOT.md`](BOT.md).
 
-- é gravada em `mensagens`;
-- **pausa a régua** daquele cliente (`conversas.bot_pausado`);
-- abre tarefa `falar_humano` com o texto da resposta.
-
-Perder um pedido de recálculo seria pior que não ter bot nenhum, então a resposta
-vira trabalho para uma pessoa enquanto o bot não existe.
+A emenda entre as duas metades é o estado da conversa: ao enviar o aviso, o
+despachante grava `conversas.estado = 'aguardando_opcao'` com prazo em
+`expira_em`, e é esse estado que dá sentido ao "1" que o cliente digita depois.
+Sem ele o bot não teria contexto para saber quais débitos o cliente está
+respondendo, e trataria a mensagem como espontânea.
 
 ## Texto das mensagens
 

@@ -126,8 +126,36 @@ Para exercitar a régua inteira com banco, mas sem enviar nada de verdade
 (`EVOLUTION_MODO=mock` é o padrão):
 
 ```bash
-pytest tests/test_regua.py tests/test_entrada.py -q
+pytest tests/test_regua.py -q
 ```
+
+### Bot de atendimento
+
+As regras de conversa são puras — leitura da opção, leitura da data, máquina de
+estados — e cobrem todas as combinações sem banco:
+
+```bash
+cd apps/worker && pytest tests/test_intents.py tests/test_maquina.py -q
+```
+
+O efeito no banco (o que foi gravado, respondido e encaminhado) e a emenda com a
+régua precisam do Postgres:
+
+```bash
+pytest tests/test_entrada.py tests/test_ciclo_bot.py -q
+```
+
+Para simular uma resposta de cliente sem a Evolution, basta postar o payload do
+webhook no worker:
+
+```bash
+curl -X POST "http://localhost:8000/webhooks/evolution/$EVOLUTION_WEBHOOK_TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"event":"messages.upsert","data":{"key":{"remoteJid":"5511999998888@s.whatsapp.net",
+       "fromMe":false,"id":"TESTE1"},"message":{"conversation":"1"}}}'
+```
+
+O detalhe do bot está em [`BOT.md`](BOT.md).
 
 Disparo manual, sem esperar o agendador:
 
@@ -196,9 +224,8 @@ await verificar_certificados(engine)
 | 1 — Cadastros + certificado digital cifrado | ✅ |
 | 2 — Integra Contador (mTLS, AutenticaProcurador, SITFIS, parser) | ✅ |
 | 3 — Organização dos débitos, dashboards e automação diária | ✅ |
-| 4 — Régua D+, envio pelo WhatsApp e opt-out | ✅ |
-| 4 — Régua D+ e envio pelo Evolution | ✅ |
-| 5 — Bot de resposta | ⬜ |
+| 4 — Régua D+, envio pelo Evolution e opt-out | ✅ |
+| 5 — Bot de resposta (1 / 1.2 / 2 / 3 e encaminhamento) | ✅ |
 | 6 — DARF via SICALC | ⬜ |
 | 7 — Observabilidade, LGPD, hardening | ⬜ |
 

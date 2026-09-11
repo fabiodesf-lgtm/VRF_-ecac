@@ -1,12 +1,14 @@
 """Agendador do worker.
 
-Duas tarefas de relógio e um consumidor de fila:
+Tarefas de relógio e um consumidor de fila:
 
 - **06:00 (São Paulo)** — enfileira a consulta ao e-CAC das empresas elegíveis,
   espalhada em meia hora;
 - **07:00 (São Paulo)** — verifica certificados vencendo;
 - **08:00 (São Paulo)** — avalia a régua e cria os avisos do dia;
 - **a cada 5 min** — despacha os avisos liberados (o despachante checa a janela);
+- **a cada hora** — devolve para `idle` as conversas cujo estado "aguardando"
+  venceu;
 - **a cada 30 s** — drena a fila.
 
 O relógio usa America/Sao_Paulo, não UTC: "06:00" aqui significa 06:00 para quem
@@ -35,6 +37,7 @@ from app.jobs.tarefas_agendadas import (
     construir_contexto,
     despachar_a_regua,
     enfileirar_sincronizacoes,
+    expirar_conversas,
     montar_handlers,
     verificar_certificados,
 )
@@ -49,6 +52,9 @@ INTERVALO_FILA_S = 30
 # avisos com intervalo aleatório entre eles, então cinco minutos distribuem o
 # volume pela janela em vez de concentrá-lo na abertura.
 INTERVALO_DESPACHO_S = 300
+# A expiração dos estados do bot é medida em horas (`bot.expira_estado_horas`),
+# então olhar a cada hora é folgado o suficiente.
+INTERVALO_EXPIRACAO_S = 3600
 
 
 def montar_agendador(engine: AsyncEngine, storage: Storage, settings: Settings) -> AsyncIOScheduler:
@@ -77,6 +83,9 @@ def montar_agendador(engine: AsyncEngine, storage: Storage, settings: Settings) 
         enviados = await despachar_a_regua(engine, construir_whatsapp(settings))
         if enviados:
             log.info("régua despachada: %d aviso(s) enviado(s)", enviados)
+
+    async def ciclo_expirar_conversas() -> None:
+        await expirar_conversas(engine)
 
     agendador.add_job(
         ciclo_diario,
@@ -113,6 +122,13 @@ def montar_agendador(engine: AsyncEngine, storage: Storage, settings: Settings) 
         id="despachar_regua",
         # O despachante já checa a janela; o intervalo só decide com que
         # frequência ele olha.
+        max_instances=1,
+        coalesce=True,
+    )
+    agendador.add_job(
+        ciclo_expirar_conversas,
+        IntervalTrigger(seconds=INTERVALO_EXPIRACAO_S),
+        id="expirar_conversas",
         max_instances=1,
         coalesce=True,
     )

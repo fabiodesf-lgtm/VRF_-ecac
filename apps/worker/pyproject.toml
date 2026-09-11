@@ -53,6 +53,13 @@ ignore = [
 # Receita usa os dois, dependendo de como o PDF foi gerado. O RUF001 sinaliza o
 # travessão como caractere ambíguo; aqui ele é necessário, não acidente.
 "app/parsers/secoes.py" = ["RUF001"]
+# O reconhecimento de intenção existe justamente para aceitar o que o teclado do
+# celular produz: dígito em caixa cheia (１), dígito-emoji (1️⃣) e travessão. Os
+# caracteres "ambíguos" são o dado de entrada, não um deslize de digitação.
+"app/bot/intents.py" = ["RUF001", "RUF003"]
+# Mesma razão do módulo que ele testa: os caracteres "ambíguos" são o dado de
+# entrada. Um teste de dígito em caixa cheia precisa do dígito em caixa cheia.
+"tests/test_intents.py" = ["RUF001", "RUF003", "S105", "S106"]
 
 [tool.mypy]
 python_version = "3.11"

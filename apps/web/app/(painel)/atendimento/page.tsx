@@ -1,8 +1,9 @@
 import Link from "next/link";
 
-import { Aviso, Card, Etiqueta, Tabela, Td, Th, Vazio } from "@/components/ui";
+import { Aviso, Card, Etiqueta, Vazio } from "@/components/ui";
 import { criarClienteServidor } from "@/lib/supabase/server";
 import { formatarData, formatarWhatsapp } from "@/lib/validacao";
+import { RetomarBot } from "./conversa";
 import { AcoesTarefa } from "./tarefa";
 
 export const dynamic = "force-dynamic";
@@ -22,7 +23,9 @@ export default async function Atendimento({
   const [{ data: conversas }, { data: tarefas }] = await Promise.all([
     supabase
       .from("conversas")
-      .select("id, whatsapp, estado, bot_pausado, ultima_mensagem_em, empresas(id, razao_social)")
+      .select(
+        "id, whatsapp, estado, bot_pausado, pausado_em, ultima_mensagem_em, empresas(id, razao_social)",
+      )
       .eq("estado", "humano")
       .order("updated_at", { ascending: false }),
     supabase
@@ -40,6 +43,30 @@ export default async function Atendimento({
 
   const fila = conversas ?? [];
   const todas = tarefas ?? [];
+
+  // A última mensagem de cada conversa da fila. Sem ela o atendente abre o
+  // WhatsApp às cegas: a fila diz quem espera, não o que a pessoa perguntou.
+  const ultimas = new Map<string, { corpo: string; quando: string | null }>();
+  if (fila.length > 0) {
+    const { data: mensagens } = await supabase
+      .from("mensagens")
+      .select("whatsapp, corpo, direcao, created_at")
+      .in(
+        "whatsapp",
+        fila.map((c) => c.whatsapp),
+      )
+      .eq("direcao", "entrada")
+      .order("created_at", { ascending: false })
+      .limit(200);
+
+    for (const m of mensagens ?? []) {
+      // A consulta já vem da mais nova para a mais antiga: a primeira de cada
+      // número é a que interessa.
+      if (!ultimas.has(m.whatsapp)) {
+        ultimas.set(m.whatsapp, { corpo: m.corpo ?? "", quando: m.created_at });
+      }
+    }
+  }
 
   // Urgentes primeiro: são as que impedem o sistema de coletar débito.
   const pendencias = [...todas].sort((a, b) => {
@@ -63,44 +90,68 @@ export default async function Atendimento({
       <Card titulo={`Aguardando atendimento (${fila.length})`}>
         {fila.length === 0 ? (
           <Vazio titulo="Ninguém na fila">
-            O bot de resposta é a Fase 5. Esta fila passa a se popular quando o cliente puder
-            responder <strong>3 — Falar com humano</strong>.
+            Um cliente entra aqui ao responder <strong>3 — Falar com humano</strong>, ou quando o
+            bot não entende a resposta dele. Enquanto estiver nesta fila, a cobrança automática
+            dele fica pausada.
           </Vazio>
         ) : (
-          <Tabela>
-            <thead>
-              <tr>
-                <Th>Cliente</Th>
-                <Th>WhatsApp</Th>
-                <Th>Última mensagem</Th>
-                <Th>Bot</Th>
-              </tr>
-            </thead>
-            <tbody>
-              {fila.map((c) => (
-                <tr key={c.id}>
-                  <Td>
-                    {c.empresas?.id ? (
-                      <Link href={`/empresas/${c.empresas.id}`} className="text-marca underline">
-                        {c.empresas.razao_social}
-                      </Link>
-                    ) : (
-                      <span className="text-atencao">número não cadastrado</span>
+          <ul className="divide-y divide-linha">
+            {fila.map((c) => {
+              const ultima = ultimas.get(c.whatsapp);
+              const razao = c.empresas?.razao_social ?? "número não cadastrado";
+              return (
+                <li key={c.id} className="flex items-start gap-3 py-3 first:pt-0 last:pb-0">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      {c.empresas?.id ? (
+                        <Link
+                          href={`/empresas/${c.empresas.id}`}
+                          className="text-sm font-medium text-marca underline"
+                        >
+                          {razao}
+                        </Link>
+                      ) : (
+                        <span className="text-sm font-medium text-atencao">{razao}</span>
+                      )}
+                      {c.bot_pausado ? (
+                        <Etiqueta tom="atencao">bot pausado</Etiqueta>
+                      ) : (
+                        <Etiqueta tom="sucesso">bot ativo</Etiqueta>
+                      )}
+                    </div>
+                    {ultima?.corpo && (
+                      <p className="mt-1 line-clamp-3 text-sm text-tinta">“{ultima.corpo}”</p>
                     )}
-                  </Td>
-                  <Td className="tabular">{formatarWhatsapp(c.whatsapp)}</Td>
-                  <Td className="tabular">{formatarData(c.ultima_mensagem_em)}</Td>
-                  <Td>
-                    {c.bot_pausado ? (
-                      <Etiqueta tom="atencao">pausado</Etiqueta>
-                    ) : (
-                      <Etiqueta tom="sucesso">ativo</Etiqueta>
-                    )}
-                  </Td>
-                </tr>
-              ))}
-            </tbody>
-          </Tabela>
+                    <p className="mt-1 text-xs text-tinta-fraca">
+                      <span className="tabular">{formatarWhatsapp(c.whatsapp)}</span>
+                      {" · última mensagem "}
+                      <span className="tabular">
+                        {formatarData(ultima?.quando ?? c.ultima_mensagem_em)}
+                      </span>
+                      {c.pausado_em && (
+                        <>
+                          {" · esperando desde "}
+                          <span className="tabular">{formatarData(c.pausado_em)}</span>
+                        </>
+                      )}
+                      {" · "}
+                      <a
+                        href={`https://wa.me/${c.whatsapp}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-marca underline"
+                      >
+                        abrir no WhatsApp
+                      </a>
+                    </p>
+                  </div>
+                  <div className="shrink-0">
+                    <RetomarBot conversaId={c.id} razaoSocial={razao} />
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
         )}
       </Card>
 
