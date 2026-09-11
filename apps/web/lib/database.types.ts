@@ -235,6 +235,9 @@ export type Database = {
           erro: string | null;
           created_at: string;
           updated_at: string;
+          motivo_aprovacao: string | null;
+          tentativas: number;
+          enviado_em: string | null;
         };
         Insert: {
           id?: string;
@@ -256,6 +259,9 @@ export type Database = {
           erro?: string | null;
           created_at?: string;
           updated_at?: string;
+          motivo_aprovacao?: string | null;
+          tentativas?: number;
+          enviado_em?: string | null;
         };
         Update: {
           id?: string;
@@ -277,6 +283,9 @@ export type Database = {
           erro?: string | null;
           created_at?: string;
           updated_at?: string;
+          motivo_aprovacao?: string | null;
+          tentativas?: number;
+          enviado_em?: string | null;
         };
         Relationships: [
           {
@@ -873,6 +882,53 @@ export type Database = {
           },
         ];
       };
+      receitas_darf: {
+        Row: {
+          codigo: string;
+          descricao: string;
+          periodicidade: Database["public"]["Enums"]["receita_periodicidade"];
+          ativo: boolean;
+          conferencia: string | null;
+          teto_valor: number | null;
+          observacao: string | null;
+          updated_by: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          codigo: string;
+          descricao: string;
+          periodicidade?: Database["public"]["Enums"]["receita_periodicidade"];
+          ativo?: boolean;
+          conferencia?: string | null;
+          teto_valor?: number | null;
+          observacao?: string | null;
+          updated_by?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          codigo?: string;
+          descricao?: string;
+          periodicidade?: Database["public"]["Enums"]["receita_periodicidade"];
+          ativo?: boolean;
+          conferencia?: string | null;
+          teto_valor?: number | null;
+          observacao?: string | null;
+          updated_by?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "receitas_darf_updated_by_fkey";
+            columns: ["updated_by"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       sitfis_consultas: {
         Row: {
           id: string;
@@ -1181,6 +1237,7 @@ export type Database = {
       perfil_papel: "admin" | "operador";
       procurador_status: "ativo" | "inativo";
       procurador_tipo: "ecpf" | "ecnpj";
+      receita_periodicidade: "mensal" | "trimestral" | "anual" | "quinzenal" | "decendial" | "unica";
       sitfis_status: "solicitado" | "aguardando" | "concluido" | "erro" | "expirado";
       tarefa_status: "aberta" | "em_andamento" | "resolvida" | "cancelada";
       tarefa_tipo: "recalculo" | "falar_humano" | "erro_certificado" | "certificado_vencendo" | "erro_sitfis" | "parse_baixa_confianca" | "erro_darf" | "aprovacao_darf" | "numero_desconhecido" | "falha_envio";

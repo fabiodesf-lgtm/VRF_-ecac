@@ -16,11 +16,13 @@ from __future__ import annotations
 import logging
 import random
 from dataclasses import dataclass
+from datetime import date
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from app.config import Settings
+from app.darf.emissao import EmissaoImpossivel, emitir_darf
 from app.db import transacao
 from app.integra.base import IntegraError, IntegraProvider
 from app.jobs.fila import Handler, Trabalho, enfileirar
@@ -33,6 +35,7 @@ from app.whatsapp.base import Whatsapp
 log = logging.getLogger(__name__)
 
 TIPO_SINCRONIZAR = "sitfis.sincronizar"
+TIPO_GERAR_DARF = "darf.gerar"
 
 # As consultas do dia são espalhadas nesta janela. Disparar todas no mesmo
 # segundo criaria um pico contra o gateway da SERPRO e não traria nada em troca.
@@ -146,6 +149,49 @@ def handler_sincronizar(contexto: Contexto) -> Handler:
                     chave_dedupe=f"sync_retomada:{resultado.consulta_id}",
                     atraso_segundos=120,
                 )
+
+    return executar
+
+
+# ───────────────────────────────────────────────────────────────────────────
+# Emissão de DARF
+# ───────────────────────────────────────────────────────────────────────────
+
+
+def handler_gerar_darf(contexto: Contexto) -> Handler:
+    """Monta o handler da emissão de DARF com o contexto do ciclo.
+
+    O trabalho é enfileirado pelo bot quando o cliente informa a data. Passar pela
+    fila, e não emitir direto no webhook, tem duas razões: a chamada ao SICALC é
+    lenta demais para segurar a resposta do webhook (a Evolution reenvia o que não
+    recebe 200 rápido), e a fila dá retentativa com backoff de graça.
+    """
+
+    async def executar(trabalho: Trabalho) -> None:
+        debito_id = str(trabalho.payload.get("debito_id") or "")
+        data_bruta = str(trabalho.payload.get("data_consolidacao") or "")
+        if not debito_id or not data_bruta:
+            raise ValueError("payload sem debito_id ou data_consolidacao")
+
+        try:
+            resultado = await emitir_darf(
+                contexto.engine,
+                contexto.storage,
+                contexto.provider,
+                contexto.whatsapp,
+                debito_id=debito_id,
+                data_consolidacao=date.fromisoformat(data_bruta),
+                chave_mestra=contexto.settings.chave_mestra,
+                contratante_cnpj=contexto.settings.serpro_contratante_cnpj or "",
+                interacao_id=trabalho.payload.get("interacao_id") or None,
+            )
+        except EmissaoImpossivel as exc:
+            # Falta pré-requisito: tentar de novo não resolve, e o serviço já
+            # abriu a tarefa correspondente.
+            log.info("emissão de DARF do débito %s impossível: %s", debito_id, exc)
+            return
+
+        log.info("DARF do débito %s: %s (%s)", debito_id, resultado.status, resultado.mensagem)
 
     return executar
 
@@ -353,7 +399,10 @@ async def expirar_conversas(engine: AsyncEngine) -> int:
 
 
 def montar_handlers(contexto: Contexto) -> dict[str, Handler]:
-    return {TIPO_SINCRONIZAR: handler_sincronizar(contexto)}
+    return {
+        TIPO_SINCRONIZAR: handler_sincronizar(contexto),
+        TIPO_GERAR_DARF: handler_gerar_darf(contexto),
+    }
 
 
 async def construir_contexto(

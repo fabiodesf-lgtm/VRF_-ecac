@@ -217,6 +217,8 @@ async def engine() -> AsyncIterator[AsyncEngine]:
     motor = create_async_engine(DATABASE_URL)
     async with motor.begin() as conexao:
         for tabela in (
+            "darfs",
+            "job_queue",
             "debito_marcos",
             "avisos",
             "interacoes",
@@ -243,6 +245,12 @@ async def engine() -> AsyncIterator[AsyncEngine]:
             text(
                 "update public.configuracoes set valor = 'null'::jsonb "
                 "where chave = 'atendimento.grupo_jid'"
+            )
+        )
+        await conexao.execute(
+            text(
+                "update public.configuracoes set valor = '10'::jsonb "
+                "where chave = 'darf.max_por_pedido'"
             )
         )
 
@@ -516,11 +524,14 @@ async def test_data_valida_registra_o_recalculo(
     # de onde veio uma data que gerou DARF.
     assert interacao.mensagem_id is not None
 
-    tarefa = await linha(
-        engine, "select titulo, detalhe from public.tarefas where tipo = 'recalculo'"
+    # O pedido vira trabalho na fila, um por débito. Emitir dentro do webhook
+    # seguraria a resposta por toda a ida ao SICALC, e a Evolution reenvia o que
+    # não recebe 200 rápido.
+    job = await linha(
+        engine, "select tipo, payload from public.job_queue where tipo = 'darf.gerar'"
     )
-    assert tarefa is not None
-    assert DATA_VALIDA in tarefa.titulo
+    assert job is not None
+    assert job.payload["data_consolidacao"] == "2026-09-18"
 
 
 @pytestmark_db
@@ -947,3 +958,58 @@ async def test_evento_que_nao_e_mensagem_e_ignorado(
 ) -> None:
     resultado = await processar(engine, whatsapp, {"event": "messages.upsert", "data": {}})
     assert resultado.acao == "evento_ignorado"
+
+
+@pytestmark_db
+async def test_pedido_sem_debito_em_aberto_vira_tarefa(
+    engine: AsyncEngine, whatsapp: MockWhatsapp
+) -> None:
+    """Pode ter sido pago entre o aviso e a resposta — vale confirmar com ele."""
+    await criar_empresa(engine)
+    await por_conversa_em(engine, NUMERO, "aguardando_data_recalculo")
+
+    await responder(engine, whatsapp, DATA_VALIDA, mid="A")
+
+    jobs = await linha(engine, "select count(*) as n from public.job_queue")
+    assert jobs.n == 0
+    tarefa = await linha(engine, "select titulo from public.tarefas where tipo = 'recalculo'")
+    assert tarefa is not None and "sem débito em aberto" in tarefa.titulo
+
+
+@pytestmark_db
+async def test_pedido_acima_do_limite_nao_gera_enxurrada(
+    engine: AsyncEngine, whatsapp: MockWhatsapp
+) -> None:
+    """Vinte documentos de uma vez não é atendimento, é despejo."""
+    empresa = await criar_empresa(engine)
+    for _ in range(4):
+        await criar_debito(engine, empresa)
+    async with engine.begin() as conexao:
+        await conexao.execute(
+            text(
+                "update public.configuracoes set valor = '3'::jsonb "
+                "where chave = 'darf.max_por_pedido'"
+            )
+        )
+    await por_conversa_em(engine, NUMERO, "aguardando_data_recalculo")
+
+    await responder(engine, whatsapp, DATA_VALIDA, mid="A")
+
+    jobs = await linha(engine, "select count(*) as n from public.job_queue")
+    assert jobs.n == 0, "nenhum DARF sai automaticamente acima do limite"
+    tarefa = await linha(engine, "select detalhe from public.tarefas where tipo = 'recalculo'")
+    assert tarefa is not None and "acima do limite de 3" in tarefa.detalhe
+
+
+@pytestmark_db
+async def test_um_job_por_debito_do_aviso(engine: AsyncEngine, whatsapp: MockWhatsapp) -> None:
+    """O cliente viu uma lista e respondeu àquela lista."""
+    empresa = await criar_empresa(engine)
+    for _ in range(3):
+        await criar_debito(engine, empresa)
+    await por_conversa_em(engine, NUMERO, "aguardando_data_recalculo")
+
+    await responder(engine, whatsapp, DATA_VALIDA, mid="A")
+
+    jobs = await linha(engine, "select count(*) as n from public.job_queue")
+    assert jobs.n == 3

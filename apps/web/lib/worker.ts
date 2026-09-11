@@ -234,6 +234,35 @@ export async function reprocessarConsulta(
   );
 }
 
+export type ResultadoAprovacaoDarf = {
+  ok: boolean;
+  status: string;
+  mensagem: string;
+  darf_id: string | null;
+  valor_total: string | null;
+  motivo: string | null;
+};
+
+/**
+ * Emite um DARF que estava esperando conferência.
+ *
+ * A aprovação dispensa as travas de política — teto de valor, receita ainda não
+ * conferida, leitura de baixa confiança —, porque é para isso que elas mandam o
+ * DARF para a fila. As travas de dado continuam valendo: débito já resolvido ou
+ * em parcelamento é recusado mesmo com o clique.
+ */
+export async function aprovarDarf(
+  darfId: string,
+  aprovadoPor: string,
+): Promise<ResultadoAprovacaoDarf> {
+  return chamar(
+    "POST",
+    `/internal/darfs/${darfId}/aprovar?aprovado_por=${encodeURIComponent(aprovadoPor)}`,
+    Buffer.alloc(0),
+    "application/json",
+  );
+}
+
 export type ResultadoRegua = {
   ok: boolean;
   kill_switch?: boolean;

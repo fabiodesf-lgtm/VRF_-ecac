@@ -32,10 +32,11 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from datetime import date, timedelta
+from datetime import date
 from enum import StrEnum
 
 from app.bot.intents import Opcao, ler_data, ler_opcao, normalizar
+from app.darf.regras import validar_data_consolidacao
 
 # Palavras de opt-out. A lista é generosa de propósito: recusar um opt-out por
 # variação de escrita é o pior erro possível aqui, e o custo de um falso positivo é
@@ -182,26 +183,18 @@ def e_cortesia(texto: str) -> bool:
 def validar_data(data: date, *, hoje: date, config: Config) -> str | None:
     """Confere se a data serve para consolidar um DARF. None quando serve.
 
-    Devolve o motivo da recusa, que vira a explicação enviada ao cliente — dizer
-    "data inválida" sem dizer por quê faz a pessoa tentar a mesma coisa de novo.
+    A regra em si mora em `app/darf/regras.py`: é uma restrição do SICALC, não da
+    conversa, e vale igual para o cliente pelo WhatsApp e para o atendente pelo
+    painel. Duas cópias divergiriam, e a divergência apareceria como um DARF
+    aceito num canal e recusado no outro.
     """
-    if data < hoje:
-        return "a data já passou"
-
-    limite = hoje + timedelta(days=config.horizonte_dias)
-    if data > limite:
-        return (
-            f"a data está além do limite de {config.horizonte_dias} dias "
-            f"(até {limite.strftime('%d/%m/%Y')})"
-        )
-
-    if config.exigir_dia_util:
-        if data.weekday() >= 5:
-            return "essa data cai em fim de semana, e o DARF precisa ser pago em dia útil"
-        if data in config.feriados:
-            return "essa data é feriado, e o DARF precisa ser pago em dia útil"
-
-    return None
+    return validar_data_consolidacao(
+        data,
+        hoje=hoje,
+        horizonte_dias=config.horizonte_dias,
+        feriados=config.feriados,
+        exigir_dia_util=config.exigir_dia_util,
+    )
 
 
 def decidir(

@@ -61,6 +61,16 @@ class MockProvider:
     # Instrumentação para os testes: quantas chamadas cada operação recebeu.
     chamadas: dict[str, int] = field(default_factory=dict)
 
+    # ── Falhas sob demanda, para exercitar os caminhos de erro ─────────────
+    # `recusar_procuracao` vale para qualquer contribuinte, diferente de
+    # `sem_procuracao`, que é por CNPJ.
+    recusar_procuracao: bool = False
+    falhar_darf: bool = False
+    # Multiplica o total consolidado. Serve para exercitar a conferência de
+    # plausibilidade: um SICALC devolvendo dez vezes o principal é exatamente o
+    # que não pode chegar ao cliente.
+    fator_darf: Decimal | None = None
+
     _protocolos: dict[str, _ProtocoloEmitido] = field(default_factory=dict, init=False)
 
     def _contar(self, operacao: str) -> None:
@@ -161,6 +171,12 @@ class MockProvider:
         token: TokenProcurador,
     ) -> Darf:
         self._contar("gerar_darf")
+        if self.recusar_procuracao or contribuinte_cnpj in self.sem_procuracao:
+            raise ProcuracaoInvalida(
+                f"não há procuração eletrônica do contribuinte {contribuinte_cnpj} (mock)"
+            )
+        if self.falhar_darf:
+            raise IntegraError("SICALC indisponível (mock)")
         if data_consolidacao < date.today():
             raise IntegraError("data de consolidação no passado")
 
@@ -172,6 +188,8 @@ class MockProvider:
         )
         juros = (valor_principal * Decimal(dias) / Decimal(3000)).quantize(Decimal("0.01"))
         total = valor_principal + multa + juros
+        if self.fator_darf is not None:
+            total = (valor_principal * self.fator_darf).quantize(Decimal("0.01"))
 
         return Darf(
             data_consolidacao=data_consolidacao,

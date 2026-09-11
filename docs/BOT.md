@@ -147,7 +147,8 @@ Atendimento humano não expira. Quem retoma é uma pessoa.
 | Situação | Tarefa |
 |---|---|
 | Opção 3, ou bot desistiu de entender, ou mensagem espontânea sem contexto | `falar_humano` (atualizada com a mensagem mais recente a cada nova) |
-| Cliente informou a data do recálculo | `recalculo` — a emissão via SICALC é a Fase 6; até então é manual |
+| Cliente informou a data do recálculo | nenhuma: vira trabalho `darf.gerar` na fila (veja [`DARF.md`](DARF.md)) |
+| Pedido sem débito em aberto, ou acima de `darf.max_por_pedido` | `recalculo` |
 | Prazo venceu com o cliente devendo a data | `recalculo` |
 | Mensagem de número não cadastrado | `numero_desconhecido` |
 | Resposta do bot não foi entregue | `falha_envio` |
@@ -201,9 +202,12 @@ tarefa em vez de mandar uma mensagem quebrada. `_variaveis()` fornece de
 propósito mais variáveis do que cada texto usa: os textos são editáveis no painel,
 e um conjunto amplo é o que permite mexer na redação sem quebrar o envio.
 
-## ⚠️ O que ainda não existe
+## Para onde vai o pedido de recálculo
 
-A emissão do DARF via SICALC é a **Fase 6**. Hoje a data do cliente é registrada
-em `interacoes.data_recalculo` e vira tarefa `recalculo`; quem calcula e manda o
-DARF é uma pessoa. `darf.teto_valor` já está em `0`, o que na prática coloca toda
-emissão em aprovação manual quando a Fase 6 subir.
+A data informada vira `interacoes.data_recalculo` e **um trabalho `darf.gerar` por
+débito** na fila — não uma chamada dentro do webhook: o SICALC é lento demais para
+segurar a resposta, e a Evolution reenvia o que não recebe 200 rápido.
+
+Com a configuração de fábrica (teto zero, nenhuma receita conferida) o trabalho
+não emite nada: cria a linha em `darfs` como `aguardando_aprovacao` e abre tarefa.
+O caminho completo, as travas e como soltá-las estão em [`DARF.md`](DARF.md).

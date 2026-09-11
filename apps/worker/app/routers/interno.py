@@ -16,6 +16,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile, status
 
+from app.darf.emissao import EmissaoImpossivel, aprovar_darf
 from app.deps import EngineDep, IntegraDep, SettingsDep, StorageDep, WhatsappDep
 from app.integra.base import IntegraError
 from app.regua.avaliacao import avaliar_regua
@@ -205,6 +206,53 @@ async def despachar(
         "falhas": resultado.falhas,
         "cancelados": resultado.cancelados,
         "suprimidos": resultado.suprimidos,
+    }
+
+
+@router.post("/darfs/{darf_id}/aprovar")
+async def aprovar(
+    darf_id: str,
+    engine: EngineDep,
+    storage: StorageDep,
+    provider: IntegraDep,
+    whatsapp: WhatsappDep,
+    settings: SettingsDep,
+    aprovado_por: str | None = None,
+) -> dict[str, object]:
+    """Emite um DARF que estava esperando conferência.
+
+    O clique de aprovação no painel vira esta chamada. As travas de dado — débito
+    resolvido, sem código de receita, em parcelamento — continuam valendo: a
+    aprovação dispensa as travas de política, não as de dado.
+
+    `aprovado_por` é o id do usuário do painel, guardado na linha do DARF e na
+    auditoria. É a resposta para "quem mandou emitir isto".
+    """
+    try:
+        resultado = await aprovar_darf(
+            engine,
+            storage,
+            provider,
+            whatsapp,
+            darf_id=darf_id,
+            chave_mestra=settings.chave_mestra,
+            contratante_cnpj=settings.serpro_contratante_cnpj or "",
+            aprovado_por=aprovado_por,
+        )
+    except EmissaoImpossivel as exc:
+        # 422, não 500: o pedido é compreensível, mas o estado não permite
+        # atendê-lo — e a mensagem é exibível ao usuário.
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
+    except IntegraError as exc:
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, str(exc)) from exc
+
+    return {
+        "ok": resultado.ok,
+        "status": resultado.status,
+        "mensagem": resultado.mensagem,
+        "darf_id": resultado.darf_id,
+        "valor_total": str(resultado.valor_total) if resultado.valor_total else None,
+        "motivo": resultado.motivo,
     }
 
 

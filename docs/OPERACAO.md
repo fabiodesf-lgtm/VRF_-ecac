@@ -137,3 +137,18 @@ endpoints internos. Só um administrador pode acioná-lo, em `/regua`.
 
 A régua e suas travas estão documentadas em [`REGUA.md`](REGUA.md); o gateway do
 WhatsApp e o risco que ele carrega, em [`evolution-api.md`](evolution-api.md).
+
+## Emissão de DARF
+
+`darf.gerar` é o tipo de trabalho enfileirado quando um cliente informa a data do
+recálculo — um por débito. Cada execução chama o SICALC, que é **cobrado**, então
+a idempotência é por `(debito_id, data_consolidacao)` e a linha é reservada antes
+da chamada.
+
+Recém-instalado o sistema **não emite nada sozinho**: `darf.teto_valor` em zero e
+`receitas_darf` vazia mandam todo pedido para aprovação em `/darfs`. As travas, o
+que cada uma protege e a ordem recomendada para soltá-las estão em
+[`DARF.md`](DARF.md).
+
+Para parar toda emissão automática sem deploy: `regua.kill_switch = true`. A
+aprovação manual continua funcionando — o kill switch para o robô, não a pessoa.

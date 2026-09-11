@@ -48,6 +48,8 @@ from app.bot.maquina import (
     e_opt_out,
 )
 from app.db import registrar_auditoria, transacao
+from app.jobs.fila import enfileirar
+from app.jobs.tarefas_agendadas import TIPO_GERAR_DARF
 from app.regua.janela import Janela, agora, ler_feriados, ler_hora
 from app.regua.render import (
     DebitoParaTexto,
@@ -352,24 +354,12 @@ async def _aplicar(
         )
 
     if decisao.acao is Acao.REGISTRAR_RECALCULO and decisao.data_recalculo is not None:
-        await _abrir_tarefa(
+        await _pedir_darfs(
             conexao,
-            tipo="recalculo",
-            titulo=(
-                f"{empresa['razao_social']} pediu recálculo para "
-                f"{decisao.data_recalculo.strftime('%d/%m/%Y')}"
-            ),
-            detalhe=(
-                "O cliente informou a data de pagamento pelo WhatsApp. A emissão "
-                "automática do DARF via SICALC é a Fase 6; até então o recálculo é "
-                "feito à mão e enviado ao cliente.\n\n"
-                f'Mensagem do cliente: "{mensagem.texto[:300] or "(sem texto)"}"'
-            ),
-            empresa_id=empresa["id"],
-            conversa_id=conversa["id"],
-            # A data entra na chave: pedir outra data é outro trabalho, não o
-            # mesmo trabalho de novo.
-            chave=f"recalculo:{empresa['id']}:{decisao.data_recalculo.isoformat()}",
+            empresa=empresa,
+            conversa=conversa,
+            mensagem=mensagem,
+            data_recalculo=decisao.data_recalculo,
         )
 
     if handoff:
@@ -506,6 +496,159 @@ async def _enviar(
             message_id=enviada.message_id,
             interno=envio.interno,
         )
+
+
+# ───────────────────────────────────────────────────────────────────────────
+# Pedido de recálculo
+# ───────────────────────────────────────────────────────────────────────────
+
+
+async def _pedir_darfs(
+    conexao: AsyncConnection,
+    *,
+    empresa: dict[str, Any],
+    conversa: dict[str, Any],
+    mensagem: MensagemRecebida,
+    data_recalculo: date,
+) -> None:
+    """Enfileira a emissão dos DARFs que o cliente acabou de pedir.
+
+    O alvo são os débitos **do aviso que o cliente está respondendo**, não todos
+    os que a empresa tem: ele viu uma lista e respondeu àquela lista. Sem aviso em
+    pauta — um pedido espontâneo — vale o que está em aberto e é cobrável.
+
+    Emitir pela fila, e não aqui, é deliberado: a chamada ao SICALC é lenta demais
+    para segurar a resposta do webhook, e a Evolution reenvia o que não recebe 200
+    rápido. A fila ainda dá retentativa com backoff de graça.
+    """
+    debitos = await _debitos_do_pedido(conexao, empresa["id"], conversa["aviso_id"])
+    maximo = await _max_por_pedido(conexao)
+
+    if not debitos:
+        await _abrir_tarefa(
+            conexao,
+            tipo="recalculo",
+            titulo=f"{empresa['razao_social']} pediu recálculo sem débito em aberto",
+            detalhe=(
+                "O cliente informou a data de pagamento, mas não há débito cobrável "
+                "em aberto para esta empresa. Pode ter sido pago entre o aviso e a "
+                "resposta — vale confirmar com ele.\n\n"
+                f'Mensagem do cliente: "{mensagem.texto[:300] or "(sem texto)"}"'
+            ),
+            empresa_id=empresa["id"],
+            conversa_id=conversa["id"],
+            chave=f"recalculo_vazio:{empresa['id']}:{data_recalculo.isoformat()}",
+        )
+        return
+
+    if len(debitos) > maximo:
+        # Vinte documentos de uma vez não é atendimento, é despejo. Acima do teto
+        # o pedido inteiro vira trabalho de uma pessoa, que decide como agrupar.
+        await _abrir_tarefa(
+            conexao,
+            tipo="recalculo",
+            titulo=(
+                f"{empresa['razao_social']} pediu recálculo de {len(debitos)} débitos "
+                f"para {data_recalculo.strftime('%d/%m/%Y')}"
+            ),
+            detalhe=(
+                f"São {len(debitos)} débitos, acima do limite de {maximo} por pedido "
+                "(darf.max_por_pedido). Nenhum DARF foi gerado automaticamente: "
+                "atenda este cliente e decida como agrupar.\n\n"
+                f'Mensagem do cliente: "{mensagem.texto[:300] or "(sem texto)"}"'
+            ),
+            empresa_id=empresa["id"],
+            conversa_id=conversa["id"],
+            chave=f"recalculo:{empresa['id']}:{data_recalculo.isoformat()}",
+        )
+        return
+
+    interacao_id = await _ultima_interacao(conexao, conversa["id"])
+
+    for debito_id in debitos:
+        await enfileirar(
+            conexao,
+            tipo=TIPO_GERAR_DARF,
+            payload={
+                "debito_id": debito_id,
+                "data_consolidacao": data_recalculo.isoformat(),
+                "interacao_id": interacao_id,
+            },
+            # A data entra na chave: pedir outra data é outro trabalho, não o
+            # mesmo de novo. A mesma data duas vezes é o mesmo pedido.
+            chave_dedupe=f"darf:{debito_id}:{data_recalculo.isoformat()}",
+            prioridade=50,
+        )
+
+    log.info(
+        "recálculo pedido: empresa=%s debitos=%d data=%s",
+        empresa["id"],
+        len(debitos),
+        data_recalculo,
+    )
+
+
+async def _debitos_do_pedido(
+    conexao: AsyncConnection, empresa_id: str, aviso_id: str | None
+) -> list[str]:
+    """Os débitos a que o pedido de recálculo se refere."""
+    if aviso_id:
+        linhas = (
+            await conexao.execute(
+                text(
+                    """
+                    select d.id::text as id
+                      from public.debito_marcos dm
+                      join public.debitos d on d.id = dm.debito_id
+                     where dm.aviso_id = cast(:a as uuid)
+                       and d.resolvido_em is null
+                       and d.situacao in ('devedor', 'divida_ativa')
+                     order by d.data_vencimento nulls last
+                    """
+                ),
+                {"a": aviso_id},
+            )
+        ).all()
+        if linhas:
+            return [linha.id for linha in linhas]
+
+    linhas = (
+        await conexao.execute(
+            text(
+                """
+                select id::text as id from public.debitos
+                 where empresa_id = cast(:e as uuid)
+                   and resolvido_em is null
+                   and situacao in ('devedor', 'divida_ativa')
+                 order by data_vencimento nulls last
+                """
+            ),
+            {"e": empresa_id},
+        )
+    ).all()
+    return [linha.id for linha in linhas]
+
+
+async def _ultima_interacao(conexao: AsyncConnection, conversa_id: str) -> str | None:
+    """A interação recém-gravada, para o DARF apontar de onde veio o pedido."""
+    return (
+        await conexao.execute(
+            text(
+                "select id::text from public.interacoes where conversa_id = cast(:c as uuid) "
+                "order by created_at desc limit 1"
+            ),
+            {"c": conversa_id},
+        )
+    ).scalar_one_or_none()
+
+
+async def _max_por_pedido(conexao: AsyncConnection) -> int:
+    valor = (
+        await conexao.execute(
+            text("select valor from public.configuracoes where chave = 'darf.max_por_pedido'")
+        )
+    ).scalar_one_or_none()
+    return int(valor) if isinstance(valor, (int, float)) else 10
 
 
 # ───────────────────────────────────────────────────────────────────────────

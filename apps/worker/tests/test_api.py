@@ -356,7 +356,43 @@ def test_reprocessar_consulta_inexistente_devolve_404(cliente: TestClient) -> No
 
 
 # ───────────────────────────────────────────────────────────────────────────
-# Webhook da Evolution (Fase 4)
+# Aprovação de DARF
+# ───────────────────────────────────────────────────────────────────────────
+
+
+def test_aprovar_darf_inexistente_devolve_422(cliente: TestClient) -> None:
+    """404 seria enganoso: a rota existe e o pedido é compreensível."""
+    resp = _assinar_post(cliente, f"/internal/darfs/{uuid.uuid4()}/aprovar")
+    assert resp.status_code == 422
+    assert "não encontrado" in resp.json()["detail"]
+
+
+def test_aprovar_darf_exige_assinatura(cliente: TestClient) -> None:
+    """Sem HMAC, qualquer um emitiria documento de arrecadação em nome do cliente."""
+    resp = cliente.post(f"/internal/darfs/{uuid.uuid4()}/aprovar")
+    assert resp.status_code == 401
+
+
+def test_aprovacao_assina_a_query_string(cliente: TestClient) -> None:
+    """`aprovado_por` vai na query: a assinatura precisa cobri-la.
+
+    Sem isso um atacante poderia trocar quem consta como aprovador de uma
+    emissão — que é justamente o dado que a auditoria existe para guardar.
+    """
+    darf_id = uuid.uuid4()
+    ts = str(time.time())
+    # Assina o caminho SEM a query e envia COM ela.
+    sig = assinar(SEGREDO, "POST", f"/internal/darfs/{darf_id}/aprovar", b"", ts)
+    requisicao = cliente.build_request(
+        "POST",
+        f"/internal/darfs/{darf_id}/aprovar?aprovado_por={uuid.uuid4()}",
+        headers={"x-vrf-timestamp": ts, "x-vrf-signature": sig},
+    )
+    assert cliente.send(requisicao).status_code == 401
+
+
+# ───────────────────────────────────────────────────────────────────────────
+# Webhook da Evolution
 # ───────────────────────────────────────────────────────────────────────────
 
 TOKEN_WEBHOOK = "token-de-webhook-bem-longo-e-aleatorio-1234567890"

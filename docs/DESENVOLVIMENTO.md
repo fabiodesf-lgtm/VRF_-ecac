@@ -157,6 +157,34 @@ curl -X POST "http://localhost:8000/webhooks/evolution/$EVOLUTION_WEBHOOK_TOKEN"
 
 O detalhe do bot está em [`BOT.md`](BOT.md).
 
+### DARF
+
+As travas da emissão são puras e cobrem todas as combinações sem banco — é o
+arquivo de testes mais importante do projeto:
+
+```bash
+cd apps/worker && pytest tests/test_darf_regras.py -q
+```
+
+O efeito (idempotência, fila de aprovação, envio do PDF) precisa do Postgres:
+
+```bash
+pytest tests/test_darf_emissao.py -q
+```
+
+Recém-instalado o sistema **não emite nada sozinho**: teto zero e lista de
+receitas vazia. Para exercitar a emissão automática em desenvolvimento, é preciso
+tomar as duas decisões que o escritório tomaria:
+
+```sql
+insert into public.receitas_darf (codigo, descricao, ativo, conferencia)
+values ('2089', 'Descrição conferida', true, 'conferido por fulano em DD/MM');
+
+update public.configuracoes set valor = '50000'::jsonb where chave = 'darf.teto_valor';
+```
+
+O detalhe está em [`DARF.md`](DARF.md).
+
 Disparo manual, sem esperar o agendador:
 
 ```python
@@ -226,7 +254,7 @@ await verificar_certificados(engine)
 | 3 — Organização dos débitos, dashboards e automação diária | ✅ |
 | 4 — Régua D+, envio pelo Evolution e opt-out | ✅ |
 | 5 — Bot de resposta (1 / 1.2 / 2 / 3 e encaminhamento) | ✅ |
-| 6 — DARF via SICALC | ⬜ |
+| 6 — DARF via SICALC, com teto, fila de aprovação e auditoria | ✅ |
 | 7 — Observabilidade, LGPD, hardening | ⬜ |
 
 Detalhe de cada fase em [`PLANO.md`](PLANO.md).

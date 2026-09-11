@@ -9,7 +9,7 @@ recálculo, ciência e encaminhamento para atendimento humano.
 
 ## Estado
 
-**Fases 0 a 5 concluídas.** O que já funciona:
+**Fases 0 a 6 concluídas.** O que já funciona:
 
 - schema completo com RLS, auditoria e validação de CNPJ/CPF no banco;
 - autenticação da equipe (primeiro usuário entra como admin);
@@ -34,6 +34,10 @@ recálculo, ciência e encaminhamento para atendimento humano.
   (ciente) e 3 (falar com humano), com reconhecimento tolerante de opção e data,
   limite de tentativas antes de chamar uma pessoa, encaminhamento para o
   número/grupo de atendimento e expiração do estado em 48h;
+- **DARF pelo SICALC** com as travas: só débito lido com alta confiança e receita
+  conferida, teto de valor, idempotência por débito e data, conferência do total
+  consolidado antes de o documento chegar ao cliente, auditoria de cada emissão e
+  fila de aprovação no painel;
 - **opt-out funcionando**: o cliente responde SAIR e para de receber, com o pedido
   registrado e os avisos pendentes cancelados;
 - CI com lint, typecheck, testes e build.
@@ -48,9 +52,11 @@ O envio fica em `EVOLUTION_MODO=mock` por padrão: a régua roda inteira e regis
 tudo, mas **nenhuma mensagem sai do worker** até alguém configurar a Evolution API
 e trocar para `real`.
 
-A emissão automática do DARF via SICALC é a **Fase 6**. Hoje o pedido de recálculo
-do cliente — com a data que ele informou — é registrado e vira tarefa no painel;
-quem calcula e envia o DARF é uma pessoa.
+A **emissão automática de DARF nasce desligada na prática**: o teto de valor vem
+em zero e a lista de códigos de receita conferidos vem vazia, o que manda todo
+pedido para aprovação em `/darfs`. Esse é o estado correto até o leitor do
+relatório ser conferido contra um relatório real da Receita; soltar cada trava é
+configuração, e é decisão do escritório, receita por receita.
 
 ## Documentação
 
@@ -64,6 +70,7 @@ quem calcula e envia o DARF é uma pessoa.
 | [`docs/OPERACAO.md`](docs/OPERACAO.md) | O que roda sozinho, as travas de custo e como intervir |
 | [`docs/REGUA.md`](docs/REGUA.md) | A régua de cobrança, as travas e o opt-out |
 | [`docs/BOT.md`](docs/BOT.md) | O bot de resposta, as opções 1/2/3 e o encaminhamento |
+| [`docs/DARF.md`](docs/DARF.md) | A emissão via SICALC e as travas que a seguram |
 | [`docs/evolution-api.md`](docs/evolution-api.md) | O gateway do WhatsApp e o risco de usar o não-oficial |
 
 ## Estrutura
