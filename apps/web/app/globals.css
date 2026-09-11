@@ -1,0 +1,37 @@
+@import "tailwindcss";
+
+/* Paleta do painel. Um tema só, claro, deliberado: é ferramenta de trabalho
+   interna usada o dia inteiro, e legibilidade de tabela densa vence variedade. */
+@theme {
+  --color-tinta: #14181f;
+  --color-tinta-fraca: #5b6472;
+  --color-linha: #e3e7ed;
+  --color-fundo: #f7f8fa;
+  --color-papel: #ffffff;
+  --color-marca: #14532d;
+  --color-marca-clara: #dcfce7;
+  --color-alerta: #b42318;
+  --color-alerta-clara: #fee4e2;
+  --color-atencao: #b54708;
+  --color-atencao-clara: #fef0c7;
+  --color-info: #175cd3;
+  --color-info-clara: #d1e9ff;
+}
+
+html {
+  color-scheme: light;
+}
+
+body {
+  background: var(--color-fundo);
+  color: var(--color-tinta);
+  font-family:
+    ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial,
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Números tabulares alinham colunas de valor e data nas tabelas. */
+.tabular {
+  font-variant-numeric: tabular-nums;
+}

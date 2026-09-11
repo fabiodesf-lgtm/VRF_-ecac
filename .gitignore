@@ -13,6 +13,7 @@ out/
 dist/
 build/
 *.egg-info/
+*.tsbuildinfo
 
 # Ambiente e segredos
 .env
