@@ -3,15 +3,11 @@ import { notFound } from "next/navigation";
 
 import { Aviso, Card, Etiqueta, Tabela, Td, Th, Vazio } from "@/components/ui";
 import { criarClienteServidor } from "@/lib/supabase/server";
-import {
-  diasDeAtraso,
-  formatarCnpj,
-  formatarData,
-  formatarMoeda,
-  formatarWhatsapp,
-} from "@/lib/validacao";
+import { proximoAviso } from "@/lib/faixas";
+import { formatarCnpj, formatarData, formatarMoeda, formatarWhatsapp } from "@/lib/validacao";
 import { atualizarEmpresa, sincronizarComEcac } from "../acoes";
 import { FormularioEmpresa, type OpcaoProcurador } from "../formulario";
+import { BotaoReprocessar } from "../reprocessar";
 import { BotaoSincronizar } from "../sincronizar";
 
 export const dynamic = "force-dynamic";
@@ -36,11 +32,10 @@ export default async function DetalheEmpresa({
       .eq("id", id)
       .maybeSingle(),
     supabase
-      .from("debitos")
-      .select("id, descricao, codigo_receita, periodo_apuracao, data_vencimento, saldo_devedor, situacao, confianca, secao_origem")
+      .from("debitos_abertos")
+      .select("*")
       .eq("empresa_id", id)
-      .is("resolvido_em", null)
-      .order("data_vencimento", { ascending: true }),
+      .order("dias_atraso", { ascending: false, nullsFirst: false }),
     supabase
       .from("procuradores")
       .select("id, nome, cpf_cnpj, procurador_certificados(id)")
@@ -48,7 +43,7 @@ export default async function DetalheEmpresa({
       .order("nome"),
     supabase
       .from("sitfis_consultas")
-      .select("id, status, parse_status, protocolo, erro, parse_resumo, iniciado_em, concluido_em")
+      .select("id, status, parse_status, protocolo, erro, parse_resumo, pdf_storage_path, iniciado_em, concluido_em")
       .eq("empresa_id", id)
       .order("iniciado_em", { ascending: false })
       .limit(10),
@@ -65,6 +60,10 @@ export default async function DetalheEmpresa({
 
   const emAberto = debitos ?? [];
   const total = emAberto.reduce((s, d) => s + Number(d.saldo_devedor ?? 0), 0);
+  const totalCobravel = emAberto
+    .filter((d) => d.cobravel)
+    .reduce((s, d) => s + Number(d.saldo_devedor ?? 0), 0);
+  const qtdConferir = emAberto.filter((d) => !d.cobravel).length;
 
   const historico = consultas ?? [];
   const inicioDoDia = new Date();
@@ -122,7 +121,7 @@ export default async function DetalheEmpresa({
         <Card titulo="Débitos em aberto" className="lg:col-span-2">
           {emAberto.length === 0 ? (
             <Vazio titulo="Nenhum débito em aberto">
-              Os débitos aparecem aqui após a sincronização com o e-CAC (Fase 2).
+              Os débitos aparecem aqui após a sincronização com o e-CAC.
             </Vazio>
           ) : (
             <>
@@ -137,40 +136,63 @@ export default async function DetalheEmpresa({
                   </tr>
                 </thead>
                 <tbody>
-                  {emAberto.map((d) => {
-                    const atraso = diasDeAtraso(d.data_vencimento);
-                    return (
-                      <tr key={d.id}>
-                        <Td>
-                          <span className="font-medium">{d.descricao}</span>
-                          <span className="block text-xs text-tinta-fraca">
-                            {[d.codigo_receita, d.periodo_apuracao].filter(Boolean).join(" · ") ||
-                              d.secao_origem}
-                          </span>
-                        </Td>
-                        <Td className="tabular">{formatarData(d.data_vencimento)}</Td>
-                        <Td alinhar="direita">
-                          {atraso === null ? "—" : atraso > 0 ? `${atraso} d` : "a vencer"}
-                        </Td>
-                        <Td alinhar="direita">{formatarMoeda(d.saldo_devedor)}</Td>
-                        <Td>
-                          <div className="flex flex-wrap gap-1.5">
-                            <Etiqueta tom={d.situacao === "devedor" ? "alerta" : "neutro"}>
-                              {d.situacao.replace(/_/g, " ")}
-                            </Etiqueta>
-                            {d.confianca === "baixa" && (
-                              <Etiqueta tom="atencao">conferir</Etiqueta>
+                  {emAberto.map((d) => (
+                    <tr key={d.id}>
+                      <Td>
+                        <span className="font-medium">{d.descricao}</span>
+                        <span className="block text-xs text-tinta-fraca">
+                          {[d.codigo_receita, d.periodo_apuracao].filter(Boolean).join(" · ") ||
+                            d.secao_origem}
+                        </span>
+                      </Td>
+                      <Td className="tabular">{formatarData(d.data_vencimento)}</Td>
+                      <Td alinhar="direita">
+                        {d.dias_atraso === null ? (
+                          "—"
+                        ) : (
+                          <>
+                            <span>{d.dias_atraso} d</span>
+                            {d.cobravel && (
+                              <span className="block text-xs text-tinta-fraca">
+                                {proximoAviso(d.dias_atraso)}
+                              </span>
                             )}
-                          </div>
-                        </Td>
-                      </tr>
-                    );
-                  })}
+                          </>
+                        )}
+                      </Td>
+                      <Td alinhar="direita">{formatarMoeda(d.saldo_devedor)}</Td>
+                      <Td>
+                        <div className="flex flex-wrap gap-1.5">
+                          <Etiqueta tom={d.cobravel ? "alerta" : "neutro"}>
+                            {(d.situacao ?? "").replace(/_/g, " ")}
+                          </Etiqueta>
+                          {!d.cobravel && <Etiqueta tom="atencao">conferir</Etiqueta>}
+                        </div>
+                        {/* O motivo importa: "conferir" sem dizer o quê não
+                            ajuda ninguém a resolver a pendência. */}
+                        {!d.cobravel && d.motivo_baixa_confianca && (
+                          <span className="mt-0.5 block text-xs text-tinta-fraca">
+                            {d.motivo_baixa_confianca}
+                          </span>
+                        )}
+                      </Td>
+                    </tr>
+                  ))}
                 </tbody>
               </Tabela>
-              <p className="mt-3 text-right text-sm font-semibold tabular text-tinta">
-                Total: {formatarMoeda(total)}
-              </p>
+              <div className="mt-3 flex flex-wrap justify-end gap-x-6 gap-y-1 text-sm">
+                {qtdConferir > 0 && (
+                  <span className="text-tinta-fraca">
+                    {qtdConferir} fora da cobrança automática
+                  </span>
+                )}
+                <span className="tabular text-tinta-fraca">
+                  Cobrável: {formatarMoeda(totalCobravel)}
+                </span>
+                <span className="font-semibold tabular text-tinta">
+                  Total: {formatarMoeda(total)}
+                </span>
+              </div>
             </>
           )}
         </Card>
@@ -262,6 +284,9 @@ export default async function DetalheEmpresa({
                     <p className="mt-0.5 text-xs text-tinta-fraca">
                       {resumoDaConsulta(c.parse_resumo)}
                     </p>
+                  )}
+                  {c.pdf_storage_path && (
+                    <BotaoReprocessar consultaId={c.id} empresaId={empresa.id} />
                   )}
                 </li>
               ))}

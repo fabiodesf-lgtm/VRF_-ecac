@@ -21,6 +21,11 @@ class Settings(BaseSettings):
     ambiente: Literal["dev", "producao"] = "dev"
     log_level: str = "INFO"
 
+    # O agendador fica desligado por padrão. Um agendador que dispara sozinho
+    # durante um teste transforma falha reproduzível em falha intermitente, e em
+    # desenvolvimento gastaria chamadas cobradas sem ninguém pedir.
+    scheduler_ativo: bool = False
+
     database_url: str = "postgresql+asyncpg://postgres:postgres@127.0.0.1:54322/postgres"
 
     # Segredo compartilhado com o painel; autentica as chamadas internas.

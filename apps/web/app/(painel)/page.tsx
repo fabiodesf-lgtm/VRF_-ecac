@@ -1,8 +1,9 @@
 import Link from "next/link";
 
-import { Aviso, Card, Etiqueta, Vazio } from "@/components/ui";
+import { Aviso, Card, Etiqueta, Tabela, Td, Th, Vazio } from "@/components/ui";
+import { FAIXAS, FAIXAS_ORDENADAS, type FaixaAtraso } from "@/lib/faixas";
 import { criarClienteServidor } from "@/lib/supabase/server";
-import { formatarMoeda } from "@/lib/validacao";
+import { formatarData, formatarMoeda } from "@/lib/validacao";
 import { saudeWorker } from "@/lib/worker";
 
 export const dynamic = "force-dynamic";
@@ -10,29 +11,54 @@ export const dynamic = "force-dynamic";
 export default async function Inicio() {
   const supabase = await criarClienteServidor();
 
-  const [empresas, procuradores, debitos, tarefas, saude] = await Promise.all([
-    supabase.from("empresas").select("id", { count: "exact", head: true }).eq("status", "ativo"),
+  const [faixas, resumos, tarefas, consultas, saude] = await Promise.all([
+    supabase.from("resumo_faixas").select("*"),
     supabase
-      .from("procuradores")
-      .select("id", { count: "exact", head: true })
-      .eq("status", "ativo"),
-    supabase
-      .from("debitos")
-      .select("saldo_devedor, empresa_id")
-      .is("resolvido_em", null)
-      .in("situacao", ["devedor", "divida_ativa"]),
+      .from("empresas_resumo")
+      .select("*")
+      .eq("status", "ativo")
+      .order("total_cobravel", { ascending: false }),
     supabase
       .from("tarefas")
-      .select("id, tipo, titulo, created_at")
+      .select("id, tipo, titulo, created_at, empresas(razao_social)")
       .in("status", ["aberta", "em_andamento"])
       .order("created_at", { ascending: false })
-      .limit(5),
+      .limit(6),
+    supabase
+      .from("sitfis_consultas")
+      .select("id, status, parse_status, iniciado_em")
+      .order("iniciado_em", { ascending: false })
+      .limit(50),
     saudeWorker(),
   ]);
 
-  const linhas = debitos.data ?? [];
-  const total = linhas.reduce((soma, d) => soma + Number(d.saldo_devedor ?? 0), 0);
-  const empresasComDebito = new Set(linhas.map((d) => d.empresa_id)).size;
+  const porFaixa = new Map<FaixaAtraso, { qtd: number; total: number; cobravel: number }>();
+  for (const linha of faixas.data ?? []) {
+    if (!linha.faixa_atraso) continue;
+    porFaixa.set(linha.faixa_atraso, {
+      qtd: Number(linha.qtd_debitos ?? 0),
+      total: Number(linha.total ?? 0),
+      cobravel: Number(linha.total_cobravel ?? 0),
+    });
+  }
+
+  const empresas = resumos.data ?? [];
+  const comDebito = empresas.filter((e) => Number(e.qtd_debitos ?? 0) > 0);
+  const totalAberto = empresas.reduce((s, e) => s + Number(e.total_aberto ?? 0), 0);
+  const totalCobravel = empresas.reduce((s, e) => s + Number(e.total_cobravel ?? 0), 0);
+  const totalConferir = empresas.reduce((s, e) => s + Number(e.qtd_conferir ?? 0), 0);
+
+  // Empresas nunca sincronizadas ou com a última sincronização com problema:
+  // são as que o sistema não está de fato acompanhando.
+  const semSincronizacao = empresas.filter((e) => !e.ultima_sincronizacao_em);
+  const comProblema = empresas.filter(
+    (e) =>
+      e.ultima_sincronizacao_status === "erro" ||
+      (e.ultima_sincronizacao_status === "concluido" &&
+        e.ultima_sincronizacao_parse !== "ok"),
+  );
+
+  const maiorTotal = Math.max(1, ...FAIXAS_ORDENADAS.map((f) => porFaixa.get(f)?.total ?? 0));
 
   return (
     <div className="space-y-6">
@@ -43,101 +69,221 @@ export default async function Inicio() {
         </p>
       </div>
 
-      {/* Nas fases 0 e 1 os débitos ainda não são coletados: dizer isso é mais
-          honesto do que mostrar zeros como se fossem a realidade. */}
       <Aviso tom="atencao">
-        <strong>Fases 0 e 1 concluídas.</strong> Os cadastros de empresa e procurador já
-        funcionam. A coleta de débitos no e-CAC (Fase 2), a régua de cobrança (Fase 4) e o bot
-        (Fase 5) ainda não estão implementados, então os números de débito abaixo permanecem
-        zerados.
+        <strong>Fases 0 a 3 concluídas.</strong> Os cadastros, a coleta de débitos no e-CAC e a
+        organização abaixo já funcionam. A régua de cobrança por WhatsApp (Fase 4) e o bot de
+        resposta (Fase 5) ainda não estão implementados —{" "}
+        <strong>nenhuma mensagem é enviada ao cliente por enquanto</strong>.
       </Aviso>
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <Indicador rotulo="Empresas ativas" valor={String(empresas.count ?? 0)} />
-        <Indicador rotulo="Procuradores ativos" valor={String(procuradores.count ?? 0)} />
-        <Indicador rotulo="Empresas com débito" valor={String(empresasComDebito)} />
-        <Indicador rotulo="Total em aberto" valor={formatarMoeda(total)} />
+        <Indicador
+          rotulo="Total em aberto"
+          valor={formatarMoeda(totalAberto)}
+          detalhe={`${formatarMoeda(totalCobravel)} cobrável`}
+        />
+        <Indicador
+          rotulo="Empresas com débito"
+          valor={String(comDebito.length)}
+          detalhe={`de ${empresas.length} ativa(s)`}
+        />
+        <Indicador
+          rotulo="Débitos a conferir"
+          valor={String(totalConferir)}
+          detalhe={totalConferir > 0 ? "fora da cobrança automática" : "nenhum"}
+        />
+        <Indicador
+          rotulo="Consultas ao e-CAC"
+          valor={String((consultas.data ?? []).length)}
+          detalhe="últimas 50"
+        />
       </div>
+
+      {(semSincronizacao.length > 0 || comProblema.length > 0) && (
+        <Aviso tom="alerta">
+          {semSincronizacao.length > 0 && (
+            <span className="block">
+              {semSincronizacao.length} empresa(s) ativa(s) nunca foram sincronizadas — o
+              sistema não conhece os débitos delas.
+            </span>
+          )}
+          {comProblema.length > 0 && (
+            <span className="block">
+              {comProblema.length} empresa(s) com a última consulta em erro ou relatório
+              parcialmente lido.
+            </span>
+          )}
+        </Aviso>
+      )}
+
+      <Card titulo="Débitos por faixa de atraso">
+        {totalAberto === 0 ? (
+          <Vazio titulo="Nenhum débito em aberto">
+            Sincronize as empresas com o e-CAC para o sistema conhecer os débitos.
+          </Vazio>
+        ) : (
+          <div className="space-y-2">
+            {FAIXAS_ORDENADAS.map((faixa) => {
+              const dados = porFaixa.get(faixa) ?? { qtd: 0, total: 0, cobravel: 0 };
+              const largura = Math.round((dados.total / maiorTotal) * 100);
+              return (
+                <div key={faixa} className="flex items-center gap-3 text-sm">
+                  <span className="w-16 shrink-0 text-xs font-medium text-tinta-fraca">
+                    {FAIXAS[faixa].curto}
+                  </span>
+                  {/* Barra proporcional: comparar faixas é mais rápido visualmente
+                      do que ler sete números. */}
+                  <span
+                    className="h-5 shrink-0 rounded-sm"
+                    style={{
+                      width: `${Math.max(largura, dados.total > 0 ? 2 : 0)}%`,
+                      minWidth: dados.total > 0 ? "4px" : 0,
+                      backgroundColor:
+                        FAIXAS[faixa].tom === "alerta"
+                          ? "var(--color-alerta)"
+                          : FAIXAS[faixa].tom === "atencao"
+                            ? "var(--color-atencao)"
+                            : "var(--color-linha)",
+                    }}
+                    aria-hidden
+                  />
+                  <span className="tabular text-tinta">{formatarMoeda(dados.total)}</span>
+                  <span className="text-xs text-tinta-fraca">
+                    {dados.qtd} débito{dados.qtd === 1 ? "" : "s"}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </Card>
 
       <div className="grid gap-4 lg:grid-cols-2">
-        <Card titulo="Fila de tarefas">
-          {(tarefas.data ?? []).length === 0 ? (
-            <Vazio titulo="Nenhuma tarefa aberta">
-              Pendências de recálculo, atendimento e erros de certificado aparecem aqui.
-            </Vazio>
+        <Card
+          titulo="Maiores devedores"
+          acao={
+            <Link href="/debitos" className="text-xs text-marca underline">
+              ver todos
+            </Link>
+          }
+        >
+          {comDebito.length === 0 ? (
+            <Vazio titulo="Nenhuma empresa com débito" />
           ) : (
-            <ul className="divide-y divide-linha">
-              {(tarefas.data ?? []).map((t) => (
-                <li key={t.id} className="flex items-start gap-3 py-2.5 first:pt-0 last:pb-0">
-                  <Etiqueta tom="atencao">{t.tipo.replace(/_/g, " ")}</Etiqueta>
-                  <span className="text-sm text-tinta">{t.titulo}</span>
-                </li>
-              ))}
-            </ul>
+            <Tabela>
+              <thead>
+                <tr>
+                  <Th>Empresa</Th>
+                  <Th alinhar="direita">Atraso</Th>
+                  <Th alinhar="direita">Cobrável</Th>
+                </tr>
+              </thead>
+              <tbody>
+                {comDebito.slice(0, 8).map((e) => (
+                  <tr key={e.empresa_id}>
+                    <Td>
+                      <Link
+                        href={`/empresas/${e.empresa_id}`}
+                        className="text-marca underline"
+                      >
+                        {e.razao_social}
+                      </Link>
+                      {!e.avisos_ativos && (
+                        <Etiqueta tom="atencao">avisos off</Etiqueta>
+                      )}
+                    </Td>
+                    <Td alinhar="direita">
+                      {e.maior_atraso_dias === null ? "—" : `${e.maior_atraso_dias} d`}
+                    </Td>
+                    <Td alinhar="direita">{formatarMoeda(e.total_cobravel)}</Td>
+                  </tr>
+                ))}
+              </tbody>
+            </Tabela>
           )}
         </Card>
 
-        <Card titulo="Estado do sistema">
-          <dl className="space-y-2.5 text-sm">
-            <Linha rotulo="Worker">
-              {saude ? (
-                <Etiqueta tom={saude.ok ? "sucesso" : "alerta"}>
-                  {saude.ok ? "no ar" : "banco inacessível"}
-                </Etiqueta>
-              ) : (
-                <Etiqueta tom="alerta">inacessível</Etiqueta>
-              )}
-            </Linha>
-            <Linha rotulo="Integra Contador">
-              {saude?.integra_provider === "serpro" ? (
-                <Etiqueta tom="sucesso">API SERPRO</Etiqueta>
-              ) : (
-                <Etiqueta tom="atencao">mock (API não contratada)</Etiqueta>
-              )}
-            </Linha>
-            <Linha rotulo="Armazenamento">
-              <Etiqueta>{saude?.storage_backend ?? "—"}</Etiqueta>
-            </Linha>
-          </dl>
-          {!saude && (
-            <p className="mt-3 text-xs text-tinta-fraca">
-              O painel não conseguiu falar com o worker. Envio de certificado e consultas ao
-              e-CAC ficam indisponíveis até ele voltar.
-            </p>
-          )}
-        </Card>
+        <div className="space-y-4">
+          <Card
+            titulo="Fila de tarefas"
+            acao={
+              <Link href="/atendimento" className="text-xs text-marca underline">
+                ver fila
+              </Link>
+            }
+          >
+            {(tarefas.data ?? []).length === 0 ? (
+              <Vazio titulo="Nenhuma tarefa aberta" />
+            ) : (
+              <ul className="divide-y divide-linha">
+                {(tarefas.data ?? []).map((t) => (
+                  <li key={t.id} className="py-2 first:pt-0 last:pb-0">
+                    <div className="flex items-start gap-2">
+                      <Etiqueta tom="atencao">{t.tipo.replace(/_/g, " ")}</Etiqueta>
+                      <span className="text-sm text-tinta">{t.titulo}</span>
+                    </div>
+                    {t.empresas?.razao_social && (
+                      <span className="mt-0.5 block text-xs text-tinta-fraca">
+                        {t.empresas.razao_social} · {formatarData(t.created_at)}
+                      </span>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </Card>
+
+          <Card titulo="Estado do sistema">
+            <dl className="space-y-2.5 text-sm">
+              <Linha rotulo="Worker">
+                {saude ? (
+                  <Etiqueta tom={saude.ok ? "sucesso" : "alerta"}>
+                    {saude.ok ? "no ar" : "banco inacessível"}
+                  </Etiqueta>
+                ) : (
+                  <Etiqueta tom="alerta">inacessível</Etiqueta>
+                )}
+              </Linha>
+              <Linha rotulo="Integra Contador">
+                {saude?.integra_provider === "serpro" ? (
+                  <Etiqueta tom="sucesso">API SERPRO</Etiqueta>
+                ) : (
+                  <Etiqueta tom="atencao">mock (API não contratada)</Etiqueta>
+                )}
+              </Linha>
+              <Linha rotulo="Armazenamento">
+                <Etiqueta>{saude?.storage_backend ?? "—"}</Etiqueta>
+              </Linha>
+            </dl>
+            {!saude && (
+              <p className="mt-3 text-xs text-tinta-fraca">
+                O painel não conseguiu falar com o worker. Envio de certificado e consultas ao
+                e-CAC ficam indisponíveis até ele voltar.
+              </p>
+            )}
+          </Card>
+        </div>
       </div>
-
-      <Card titulo="Próximos passos">
-        <ul className="space-y-2 text-sm text-tinta-fraca">
-          <li>
-            1. Cadastre o{" "}
-            <Link href="/procuradores/novo" className="font-medium text-marca underline">
-              procurador e o certificado digital
-            </Link>{" "}
-            que será usado nas consultas.
-          </li>
-          <li>
-            2. Cadastre as{" "}
-            <Link href="/empresas/nova" className="font-medium text-marca underline">
-              empresas clientes
-            </Link>{" "}
-            e vincule cada uma ao procurador.
-          </li>
-          <li>3. Garanta a procuração e-CAC de cada cliente para esse procurador.</li>
-        </ul>
-      </Card>
     </div>
   );
 }
 
-function Indicador({ rotulo, valor }: { rotulo: string; valor: string }) {
+function Indicador({
+  rotulo,
+  valor,
+  detalhe,
+}: {
+  rotulo: string;
+  valor: string;
+  detalhe?: string;
+}) {
   return (
     <div className="rounded-lg border border-linha bg-papel px-4 py-3">
       <div className="text-xs font-medium uppercase tracking-wide text-tinta-fraca">
         {rotulo}
       </div>
       <div className="mt-1 text-xl font-semibold tabular text-tinta">{valor}</div>
+      {detalhe && <div className="mt-0.5 text-xs text-tinta-fraca">{detalhe}</div>}
     </div>
   );
 }

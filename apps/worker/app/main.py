@@ -17,11 +17,13 @@ from fastapi import FastAPI
 from sqlalchemy import text
 
 from app.config import get_settings
-from app.db import fechar_engine
+from app.db import fechar_engine, get_engine
 from app.deps import EngineDep, SettingsDep
+from app.jobs.agendador import montar_agendador
 from app.logging_config import configurar_logging
 from app.middleware import AssinaturaInternaMiddleware
 from app.routers import interno
+from app.storage import construir_storage
 
 log = logging.getLogger(__name__)
 
@@ -41,7 +43,31 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             "INTEGRA_PROVIDER=mock — nenhuma chamada real ao SERPRO será feita. "
             "Os dados de débito vêm de fixtures locais."
         )
+
+    agendador = None
+    if settings.scheduler_ativo:
+        agendador = montar_agendador(
+            get_engine(settings.database_url),
+            construir_storage(
+                settings.storage_backend,
+                local_dir=settings.storage_local_dir,
+                supabase_url=settings.supabase_url,
+                service_role_key=settings.supabase_service_role_key,
+            ),
+            settings,
+        )
+        agendador.start()
+        log.info(
+            "agendador no ar: sincronização 06:00, certificados 07:00 (America/Sao_Paulo), "
+            "fila a cada 30s"
+        )
+    else:
+        log.info("agendador desligado (SCHEDULER_ATIVO=false)")
+
     yield
+
+    if agendador is not None:
+        agendador.shutdown(wait=False)
     await fechar_engine()
     log.info("worker encerrado")
 

@@ -141,6 +141,25 @@ c = gerar_pfx(); open('/tmp/teste.pfx','wb').write(c.pfx); print('senha:', c.sen
 "
 ```
 
+## Trabalho automático
+
+O agendador fica **desligado por padrão**. Para ligá-lo em desenvolvimento:
+
+```bash
+SCHEDULER_ATIVO=true uvicorn app.main:app --port 8000
+```
+
+Com `INTEGRA_PROVIDER=mock` nada é cobrado. Detalhes do que roda sozinho, das
+travas de custo e de como intervir em [`OPERACAO.md`](OPERACAO.md).
+
+Para disparar o ciclo diário manualmente, sem esperar as 06:00:
+
+```python
+from app.jobs.tarefas_agendadas import enfileirar_sincronizacoes, verificar_certificados
+await enfileirar_sincronizacoes(engine)
+await verificar_certificados(engine)
+```
+
 ## Estado das fases
 
 | Fase | Situação |
@@ -148,7 +167,7 @@ c = gerar_pfx(); open('/tmp/teste.pfx','wb').write(c.pfx); print('senha:', c.sen
 | 0 — Fundação (schema, RLS, auth, mock, CI) | ✅ |
 | 1 — Cadastros + certificado digital cifrado | ✅ |
 | 2 — Integra Contador (mTLS, AutenticaProcurador, SITFIS, parser) | ✅ |
-| 3 — Organização dos débitos | ⬜ |
+| 3 — Organização dos débitos, dashboards e automação diária | ✅ |
 | 4 — Régua D+ e envio pelo Evolution | ⬜ |
 | 5 — Bot de resposta | ⬜ |
 | 6 — DARF via SICALC | ⬜ |

@@ -52,6 +52,32 @@ def cnpj_aleatorio() -> str:
     return cnpj_com_dv(f"{secrets.randbelow(10**12):012d}")
 
 
+def cpf_com_dv(base: str) -> str:
+    """Completa uma base de 9 dígitos com os dois dígitos verificadores."""
+    digitos = [int(c) for c in base[:9].zfill(9)]
+
+    def dv(ate: int) -> int:
+        soma = sum(digitos[i] * (ate + 1 - i) for i in range(ate))
+        resto = (soma * 10) % 11
+        return 0 if resto >= 10 else resto
+
+    digitos.append(dv(9))
+    digitos.append(dv(10))
+    return "".join(str(d) for d in digitos)
+
+
+def cpf_aleatorio() -> str:
+    """CPF válido e único.
+
+    O banco valida os dígitos verificadores (`documento_valido`), então gerar
+    dígitos aleatórios sem calcular o DV falha na inserção — e a falha aparece
+    como erro de constraint, não como o que o teste quis checar.
+    """
+    import secrets
+
+    return cpf_com_dv(f"{secrets.randbelow(10**9):09d}")
+
+
 @dataclass(frozen=True)
 class CertificadoTeste:
     pfx: bytes

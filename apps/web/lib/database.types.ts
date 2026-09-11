@@ -1066,6 +1066,70 @@ export type Database = {
         };
         Relationships: [];
       };
+      debitos_abertos: {
+        Row: {
+          id: string | null;
+          empresa_id: string | null;
+          cnpj: string | null;
+          razao_social: string | null;
+          whatsapp: string | null;
+          avisos_ativos: boolean | null;
+          codigo_receita: string | null;
+          descricao: string | null;
+          periodo_apuracao: string | null;
+          data_vencimento: string | null;
+          valor_original: number | null;
+          multa: number | null;
+          juros: number | null;
+          saldo_devedor: number | null;
+          situacao: Database["public"]["Enums"]["debito_situacao"] | null;
+          confianca: Database["public"]["Enums"]["confianca_parse"] | null;
+          secao_origem: string | null;
+          motivo_baixa_confianca: string | null;
+          primeira_deteccao_em: string | null;
+          ultima_vista_em: string | null;
+          dias_atraso: number | null;
+          faixa_atraso: Database["public"]["Enums"]["faixa_atraso"] | null;
+          cobravel: boolean | null;
+        };
+        Relationships: [];
+      };
+      empresas_resumo: {
+        Row: {
+          empresa_id: string | null;
+          cnpj: string | null;
+          razao_social: string | null;
+          nome_fantasia: string | null;
+          whatsapp: string | null;
+          status: Database["public"]["Enums"]["empresa_status"] | null;
+          avisos_ativos: boolean | null;
+          procuracao_ecac_ok: boolean | null;
+          consentimento_whatsapp_em: string | null;
+          procurador_id: string | null;
+          procurador_nome: string | null;
+          qtd_debitos: number | null;
+          qtd_cobraveis: number | null;
+          qtd_conferir: number | null;
+          total_aberto: number | null;
+          total_cobravel: number | null;
+          maior_atraso_dias: number | null;
+          ultima_sincronizacao_em: string | null;
+          ultima_sincronizacao_status: Database["public"]["Enums"]["sitfis_status"] | null;
+          ultima_sincronizacao_parse: Database["public"]["Enums"]["parse_status"] | null;
+        };
+        Relationships: [];
+      };
+      resumo_faixas: {
+        Row: {
+          faixa_atraso: Database["public"]["Enums"]["faixa_atraso"] | null;
+          qtd_debitos: number | null;
+          qtd_empresas: number | null;
+          total: number | null;
+          qtd_cobraveis: number | null;
+          total_cobravel: number | null;
+        };
+        Relationships: [];
+      };
     };
     Functions: {
       [_ in never]: never;
@@ -1077,6 +1141,7 @@ export type Database = {
       darf_status: "aguardando_aprovacao" | "gerado" | "enviado" | "falhou";
       debito_situacao: "devedor" | "exigibilidade_suspensa" | "em_parcelamento" | "divida_ativa" | "quitado";
       empresa_status: "ativo" | "inativo";
+      faixa_atraso: "a_vencer" | "d0_4" | "d5_14" | "d15_29" | "d30_59" | "d60_89" | "d90_mais" | "sem_data";
       interacao_opcao: "ciente_recalculo" | "ciente_sem_recalculo" | "falar_humano" | "opt_out";
       job_status: "pendente" | "processando" | "concluido" | "falhou";
       marco: "d5" | "d15" | "d30" | "d60" | "d90";

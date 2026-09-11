@@ -9,7 +9,7 @@ recálculo, ciência e encaminhamento para atendimento humano.
 
 ## Estado
 
-**Fases 0, 1 e 2 concluídas.** O que já funciona:
+**Fases 0 a 3 concluídas.** O que já funciona:
 
 - schema completo com RLS, auditoria e validação de CNPJ/CPF no banco;
 - autenticação da equipe (primeiro usuário entra como admin);
@@ -23,6 +23,10 @@ recálculo, ciência e encaminhamento para atendimento humano.
   automática;
 - **sincronização** com cota diária (cada consulta é cobrada), relatório guardado
   para auditoria e reprocessamento gratuito;
+- **automação diária**: agendador que enfileira as consultas às 06:00, fila de
+  trabalhos sobre Postgres com retentativa, e alerta de certificado vencendo;
+- **dashboards**: distribuição dos débitos por faixa de atraso, maiores
+  devedores, tela de débitos com filtros por URL e fila de tarefas trabalhável;
 - CI com lint, typecheck, testes e build.
 
 **A API do Integra Contador ainda não foi contratada.** Todo o acesso à SERPRO
@@ -31,8 +35,8 @@ com fixtures, e a virada é `INTEGRA_PROVIDER=serpro`. O que precisa ser conferi
 na contratação está no checklist de
 [`docs/integra-contador.md`](docs/integra-contador.md).
 
-Próxima fase: organização dos débitos e dashboards (Fase 3), depois a régua de
-cobrança (Fase 4).
+**Nenhuma mensagem é enviada ao cliente ainda** — a régua de cobrança por
+WhatsApp é a Fase 4 e o bot de resposta a Fase 5.
 
 ## Documentação
 
@@ -43,6 +47,7 @@ cobrança (Fase 4).
 | [`docs/SEGURANCA.md`](docs/SEGURANCA.md) | Tratamento do certificado digital e dos segredos |
 | [`docs/integra-contador.md`](docs/integra-contador.md) | Integração com a SERPRO e checklist de contratação |
 | [`docs/PARSER.md`](docs/PARSER.md) | O parser do relatório e as proteções contra cobrança errada |
+| [`docs/OPERACAO.md`](docs/OPERACAO.md) | O que roda sozinho, as travas de custo e como intervir |
 
 ## Estrutura
 
