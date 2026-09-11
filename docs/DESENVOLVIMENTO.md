@@ -114,6 +114,34 @@ SERPRO:
 curl -X POST .../internal/consultas/<consulta_id>/reprocessar   # via painel/worker
 ```
 
+### Régua de cobrança
+
+A aritmética da régua é pura e não precisa de banco:
+
+```bash
+cd apps/worker && pytest tests/test_marcos.py tests/test_render_janela.py -q
+```
+
+Para exercitar a régua inteira com banco, mas sem enviar nada de verdade
+(`EVOLUTION_MODO=mock` é o padrão):
+
+```bash
+pytest tests/test_regua.py tests/test_entrada.py -q
+```
+
+Disparo manual, sem esperar o agendador:
+
+```python
+from app.regua.avaliacao import avaliar_regua
+from app.regua.despacho import despachar_avisos
+from app.whatsapp.factory import construir_whatsapp
+
+await avaliar_regua(engine)                      # cria os avisos, não envia
+await despachar_avisos(engine, construir_whatsapp(settings), ignorar_janela=True)
+```
+
+Ou pelo painel, em `/regua`. Detalhes das travas em [`REGUA.md`](REGUA.md).
+
 ### Integração painel → worker
 
 O teste que prova a interoperabilidade do HMAC entre Node e Python precisa do
@@ -168,7 +196,8 @@ await verificar_certificados(engine)
 | 1 — Cadastros + certificado digital cifrado | ✅ |
 | 2 — Integra Contador (mTLS, AutenticaProcurador, SITFIS, parser) | ✅ |
 | 3 — Organização dos débitos, dashboards e automação diária | ✅ |
-| 4 — Régua D+ e envio pelo Evolution | ⬜ |
+| 4 — Régua D+, envio pelo WhatsApp e opt-out | ✅ |
+| 4 — Régua D+ e envio pelo Evolution | ✅ |
 | 5 — Bot de resposta | ⬜ |
 | 6 — DARF via SICALC | ⬜ |
 | 7 — Observabilidade, LGPD, hardening | ⬜ |

@@ -11,31 +11,31 @@ insert into public.templates (chave, titulo, corpo, descricao) values
 (
   'aviso_d5',
   'Aviso D+5',
-  E'Olá, {{razao_social}}! 👋\n\nIdentificamos {{qtd_debitos}} débito(s) vencido(s) há 5 dias na Receita Federal:\n\n{{lista_debitos}}\n\n*Total: {{total}}*\n\nQuanto antes regularizar, menor a multa e os juros. Como deseja prosseguir?\n\n*1* - Ciente, vou querer recálculo.\n*2* - Ciente, não vou querer recálculo no momento.\n*3* - Falar com humano\n\n_V.R. Ferreira Contábil. Para não receber mais estes avisos, responda SAIR._',
+  E'Olá, {{razao_social}}! 👋\n\nIdentificamos {{qtd_debitos}} débito(s) vencido(s) há mais de {{marco_dias}} dias na Receita Federal:\n\n{{lista_debitos}}\n\n*Total: {{total}}*\n\nQuanto antes regularizar, menor a multa e os juros. Como deseja prosseguir?\n\n*1* - Ciente, vou querer recálculo.\n*2* - Ciente, não vou querer recálculo no momento.\n*3* - Falar com humano\n\n_V.R. Ferreira Contábil. Para não receber mais estes avisos, responda SAIR._',
   'Primeiro aviso, 5 dias após o vencimento.'
 ),
 (
   'aviso_d15',
   'Aviso D+15',
-  E'Olá, {{razao_social}}!\n\nSeus débitos abaixo estão vencidos há 15 dias e continuam em aberto:\n\n{{lista_debitos}}\n\n*Total: {{total}}*\n\nA multa de mora cresce a cada dia. Como deseja prosseguir?\n\n*1* - Ciente, vou querer recálculo.\n*2* - Ciente, não vou querer recálculo no momento.\n*3* - Falar com humano\n\n_V.R. Ferreira Contábil. Para não receber mais estes avisos, responda SAIR._',
+  E'Olá, {{razao_social}}!\n\nSeus débitos abaixo estão vencidos há mais de {{marco_dias}} dias e continuam em aberto:\n\n{{lista_debitos}}\n\n*Total: {{total}}*\n\nA multa de mora cresce a cada dia. Como deseja prosseguir?\n\n*1* - Ciente, vou querer recálculo.\n*2* - Ciente, não vou querer recálculo no momento.\n*3* - Falar com humano\n\n_V.R. Ferreira Contábil. Para não receber mais estes avisos, responda SAIR._',
   'Segundo aviso, 15 dias após o vencimento.'
 ),
 (
   'aviso_d30',
   'Aviso D+30',
-  E'{{razao_social}}, atenção ⚠️\n\nJá são *30 dias* de atraso nos débitos abaixo:\n\n{{lista_debitos}}\n\n*Total: {{total}}*\n\nDébitos não regularizados podem gerar restrição de certidão negativa. Como deseja prosseguir?\n\n*1* - Ciente, vou querer recálculo.\n*2* - Ciente, não vou querer recálculo no momento.\n*3* - Falar com humano\n\n_V.R. Ferreira Contábil. Para não receber mais estes avisos, responda SAIR._',
+  E'{{razao_social}}, atenção ⚠️\n\nJá são *mais de {{marco_dias}} dias* de atraso nos débitos abaixo:\n\n{{lista_debitos}}\n\n*Total: {{total}}*\n\nDébitos não regularizados podem gerar restrição de certidão negativa. Como deseja prosseguir?\n\n*1* - Ciente, vou querer recálculo.\n*2* - Ciente, não vou querer recálculo no momento.\n*3* - Falar com humano\n\n_V.R. Ferreira Contábil. Para não receber mais estes avisos, responda SAIR._',
   'Terceiro aviso, 30 dias após o vencimento.'
 ),
 (
   'aviso_d60',
   'Aviso D+60',
-  E'{{razao_social}}, seus débitos estão vencidos há *60 dias* 🔴\n\n{{lista_debitos}}\n\n*Total: {{total}}*\n\nNesta faixa de atraso o risco de encaminhamento para inscrição em Dívida Ativa da União aumenta consideravelmente. Como deseja prosseguir?\n\n*1* - Ciente, vou querer recálculo.\n*2* - Ciente, não vou querer recálculo no momento.\n*3* - Falar com humano\n\n_V.R. Ferreira Contábil. Para não receber mais estes avisos, responda SAIR._',
+  E'{{razao_social}}, seus débitos estão vencidos há *mais de {{marco_dias}} dias* 🔴\n\n{{lista_debitos}}\n\n*Total: {{total}}*\n\nNesta faixa de atraso o risco de encaminhamento para inscrição em Dívida Ativa da União aumenta consideravelmente. Como deseja prosseguir?\n\n*1* - Ciente, vou querer recálculo.\n*2* - Ciente, não vou querer recálculo no momento.\n*3* - Falar com humano\n\n_V.R. Ferreira Contábil. Para não receber mais estes avisos, responda SAIR._',
   'Quarto aviso, 60 dias após o vencimento.'
 ),
 (
   'aviso_d90',
   'Aviso D+90 (último aviso)',
-  E'{{razao_social}}, este é o *ÚLTIMO AVISO* automático sobre estes débitos 🔴\n\nEles estão vencidos há *90 dias*:\n\n{{lista_debitos}}\n\n*Total: {{total}}*\n\nA partir de agora não enviaremos novos avisos automáticos. *Procure o escritório para regularizar sua situação* — quanto mais tempo passa, maior o valor e o risco de inscrição em Dívida Ativa da União.\n\n*1* - Ciente, vou querer recálculo.\n*2* - Ciente, não vou querer recálculo no momento.\n*3* - Falar com humano\n\n_V.R. Ferreira Contábil. Para não receber mais estes avisos, responda SAIR._',
+  E'{{razao_social}}, este é o *ÚLTIMO AVISO* automático sobre estes débitos 🔴\n\nEles estão vencidos há *mais de {{marco_dias}} dias*:\n\n{{lista_debitos}}\n\n*Total: {{total}}*\n\nA partir de agora não enviaremos novos avisos automáticos. *Procure o escritório para regularizar sua situação* — quanto mais tempo passa, maior o valor e o risco de inscrição em Dívida Ativa da União.\n\n*1* - Ciente, vou querer recálculo.\n*2* - Ciente, não vou querer recálculo no momento.\n*3* - Falar com humano\n\n_V.R. Ferreira Contábil. Para não receber mais estes avisos, responda SAIR._',
   'Último aviso da régua, 90 dias após o vencimento. Instrui o cliente a procurar o escritório.'
 ),
 

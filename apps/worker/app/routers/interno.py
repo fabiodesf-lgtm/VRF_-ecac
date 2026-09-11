@@ -16,8 +16,10 @@ from typing import Annotated
 
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile, status
 
-from app.deps import EngineDep, IntegraDep, SettingsDep, StorageDep
+from app.deps import EngineDep, IntegraDep, SettingsDep, StorageDep, WhatsappDep
 from app.integra.base import IntegraError
+from app.regua.avaliacao import avaliar_regua
+from app.regua.despacho import despachar_avisos
 from app.security.certificado import CertificadoInvalido
 from app.services.certificados import ProcuradorNaoEncontrado, armazenar_certificado
 from app.services.sincronizacao import (
@@ -163,4 +165,58 @@ async def reprocessar(
         "debitos_resolvidos": resultado.debitos_resolvidos,
         "baixa_confianca": resultado.baixa_confianca,
         "secoes_desconhecidas": list(resultado.secoes_desconhecidas),
+    }
+
+
+@router.post("/regua/avaliar")
+async def avaliar(engine: EngineDep) -> dict[str, object]:
+    """Recalcula os avisos do dia. Não envia nada.
+
+    Separado do despacho de propósito: dá para conferir o que está para sair
+    antes de sair.
+    """
+    resultado = await avaliar_regua(engine)
+    return {
+        "ok": not resultado.kill_switch,
+        "kill_switch": resultado.kill_switch,
+        "mensagem": resultado.resumo,
+        "avisos_criados": resultado.avisos_criados,
+        "debitos_marcados": resultado.debitos_marcados,
+        "marcos_suprimidos": resultado.marcos_suprimidos,
+    }
+
+
+@router.post("/regua/despachar")
+async def despachar(
+    engine: EngineDep, whatsapp: WhatsappDep, ignorar_janela: bool = False
+) -> dict[str, object]:
+    """Envia os avisos liberados.
+
+    `ignorar_janela=true` é para um envio manual deliberado; o caminho automático
+    nunca passa por cima da janela. O kill switch e as demais travas continuam
+    valendo mesmo aqui — não existe caminho no sistema que as contorne.
+    """
+    resultado = await despachar_avisos(engine, whatsapp, ignorar_janela=ignorar_janela)
+    return {
+        "ok": resultado.motivo_parada is None,
+        "mensagem": resultado.resumo,
+        "motivo_parada": resultado.motivo_parada,
+        "enviados": resultado.enviados,
+        "falhas": resultado.falhas,
+        "cancelados": resultado.cancelados,
+        "suprimidos": resultado.suprimidos,
+    }
+
+
+@router.get("/whatsapp/estado")
+async def whatsapp_estado(whatsapp: WhatsappDep, settings: SettingsDep) -> dict[str, object]:
+    """Diz se a instância do WhatsApp está conectada.
+
+    O painel usa isto para avisar antes de alguém esperar um envio que não vai
+    acontecer.
+    """
+    return {
+        "modo": settings.evolution_modo,
+        "instancia": settings.evolution_instance or None,
+        "conectada": await whatsapp.conectada(),
     }

@@ -169,6 +169,26 @@ function sanitizarNome(nome: string): string {
   return nome.replace(/[\r\n"\\]/g, "_").slice(0, 120) || "certificado.pfx";
 }
 
+/** GET assinado numa rota interna. */
+async function chamarGet<T>(caminho: string): Promise<T> {
+  const timestamp = (Date.now() / 1000).toString();
+  const assinatura = assinar("GET", caminho, Buffer.alloc(0), timestamp);
+
+  const resposta = await fetch(`${baseUrl()}${caminho}`, {
+    method: "GET",
+    headers: {
+      "x-vrf-timestamp": timestamp,
+      "x-vrf-signature": assinatura,
+    },
+    cache: "no-store",
+  });
+
+  if (!resposta.ok) {
+    throw new WorkerError(resposta.status, await extrairDetalhe(resposta));
+  }
+  return (await resposta.json()) as T;
+}
+
 export type ResultadoSincronizacao = {
   ok: boolean;
   status: "concluido" | "aguardando" | "erro" | "expirado" | "pulado";
@@ -212,6 +232,64 @@ export async function reprocessarConsulta(
     Buffer.alloc(0),
     "application/json",
   );
+}
+
+export type ResultadoRegua = {
+  ok: boolean;
+  kill_switch?: boolean;
+  mensagem: string;
+  avisos_criados?: number;
+  debitos_marcados?: number;
+  marcos_suprimidos?: number;
+};
+
+export type ResultadoDespacho = {
+  ok: boolean;
+  mensagem: string;
+  motivo_parada: string | null;
+  enviados: number;
+  falhas: number;
+  cancelados: number;
+  suprimidos: Record<string, number>;
+};
+
+/** Recalcula os avisos do dia. Não envia nada. */
+export async function avaliarRegua(): Promise<ResultadoRegua> {
+  return chamar("POST", "/internal/regua/avaliar", Buffer.alloc(0), "application/json");
+}
+
+/**
+ * Envia os avisos liberados.
+ *
+ * `ignorarJanela` serve a um envio manual deliberado. O kill switch e as demais
+ * travas continuam valendo mesmo assim — não existe caminho no sistema que as
+ * contorne.
+ */
+export async function despacharRegua(
+  opcoes: { ignorarJanela?: boolean } = {},
+): Promise<ResultadoDespacho> {
+  const query = opcoes.ignorarJanela ? "?ignorar_janela=true" : "";
+  return chamar(
+    "POST",
+    `/internal/regua/despachar${query}`,
+    Buffer.alloc(0),
+    "application/json",
+  );
+}
+
+export type EstadoWhatsapp = {
+  modo: "mock" | "real";
+  instancia: string | null;
+  conectada: boolean;
+};
+
+/** Estado da instância do WhatsApp. Rota interna, assinada. */
+export async function estadoWhatsapp(): Promise<EstadoWhatsapp | null> {
+  try {
+    return await chamarGet<EstadoWhatsapp>("/internal/whatsapp/estado");
+  } catch {
+    return null;
+  }
 }
 
 export type SaudeWorker = {

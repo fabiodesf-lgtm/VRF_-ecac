@@ -26,6 +26,7 @@ from app.jobs.tarefas_agendadas import (
 from app.security.crypto import gerar_chave_hex
 from app.services.certificados import armazenar_certificado
 from app.storage import StorageLocal
+from app.whatsapp.mock import MockWhatsapp
 from tests.conftest import CertificadoTeste, cnpj_aleatorio
 
 DATABASE_URL = os.getenv("TEST_DATABASE_URL", "")
@@ -153,6 +154,7 @@ async def test_ciclo_diario_completo(
         storage=storage,
         settings=montar_settings(chave),
         provider=MockProvider(tempo_espera_ms=10),
+        whatsapp=MockWhatsapp(),
     )
     assert await drenar(engine, montar_handlers(contexto), limite=10) == 3
 
@@ -198,7 +200,11 @@ async def test_cota_impede_gastar_duas_vezes_no_mesmo_dia(
     """Duas travas independentes protegem o custo: a da fila e a da sincronização."""
     provider = MockProvider(tempo_espera_ms=10)
     contexto = Contexto(
-        engine=engine, storage=storage, settings=montar_settings(chave), provider=provider
+        engine=engine,
+        storage=storage,
+        settings=montar_settings(chave),
+        provider=provider,
+        whatsapp=MockWhatsapp(),
     )
 
     await enfileirar_sincronizacoes(engine)
@@ -275,6 +281,7 @@ async def test_auditoria_registra_cada_sincronizacao(
         storage=storage,
         settings=montar_settings(chave),
         provider=MockProvider(tempo_espera_ms=10),
+        whatsapp=MockWhatsapp(),
     )
     await enfileirar_sincronizacoes(engine)
     async with engine.begin() as conexao:

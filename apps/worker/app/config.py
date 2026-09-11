@@ -45,6 +45,10 @@ class Settings(BaseSettings):
     serpro_consumer_secret: str = ""
     serpro_contratante_cnpj: str = ""
 
+    # mock = registra em memória e não manda nada; real = Evolution API.
+    # O padrão seguro importa mais aqui do que em qualquer outro lugar: um
+    # "real" acidental manda cobrança para cliente de verdade, e não desfaz.
+    evolution_modo: Literal["mock", "real"] = "mock"
     evolution_base_url: str = ""
     evolution_instance: str = ""
     evolution_apikey: str = ""

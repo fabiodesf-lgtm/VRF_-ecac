@@ -12,6 +12,8 @@ from app.db import get_engine
 from app.integra.base import IntegraError, IntegraProvider
 from app.integra.factory import construir_provider
 from app.storage import Storage, construir_storage
+from app.whatsapp.base import Whatsapp
+from app.whatsapp.factory import construir_whatsapp
 
 
 def settings_dep() -> Settings:
@@ -57,3 +59,14 @@ async def integra_dep(
 
 
 IntegraDep = Annotated[IntegraProvider, Depends(integra_dep)]
+
+
+def whatsapp_dep(settings: SettingsDep) -> Whatsapp:
+    """Cliente de WhatsApp conforme a configuração.
+
+    `EVOLUTION_MODO=mock` (padrão) registra em memória e não manda nada.
+    """
+    return construir_whatsapp(settings)
+
+
+WhatsappDep = Annotated[Whatsapp, Depends(whatsapp_dep)]

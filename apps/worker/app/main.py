@@ -22,7 +22,7 @@ from app.deps import EngineDep, SettingsDep
 from app.jobs.agendador import montar_agendador
 from app.logging_config import configurar_logging
 from app.middleware import AssinaturaInternaMiddleware
-from app.routers import interno
+from app.routers import interno, webhook
 from app.storage import construir_storage
 
 log = logging.getLogger(__name__)
@@ -43,6 +43,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             "INTEGRA_PROVIDER=mock — nenhuma chamada real ao SERPRO será feita. "
             "Os dados de débito vêm de fixtures locais."
         )
+    if settings.evolution_modo == "mock":
+        log.warning(
+            "EVOLUTION_MODO=mock — nenhuma mensagem de WhatsApp sai do processo. "
+            "Os envios ficam registrados em memória."
+        )
 
     agendador = None
     if settings.scheduler_ativo:
@@ -58,8 +63,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         )
         agendador.start()
         log.info(
-            "agendador no ar: sincronização 06:00, certificados 07:00 (America/Sao_Paulo), "
-            "fila a cada 30s"
+            "agendador no ar: sincronização 06:00, certificados 07:00, régua 08:00 "
+            "(America/Sao_Paulo); despacho a cada 5min; fila a cada 30s"
         )
     else:
         log.info("agendador desligado (SCHEDULER_ATIVO=false)")
@@ -86,6 +91,9 @@ app.add_middleware(
 )
 
 app.include_router(interno.router)
+# O webhook fica fora de /internal: quem chama é a Evolution API, que não tem o
+# segredo interno. Ele se autentica pelo token no caminho.
+app.include_router(webhook.router)
 
 
 @app.get("/health", tags=["saúde"])

@@ -24,8 +24,11 @@ from app.config import Settings
 from app.db import transacao
 from app.integra.base import IntegraError, IntegraProvider
 from app.jobs.fila import Handler, Trabalho, enfileirar
+from app.regua.avaliacao import avaliar_regua
+from app.regua.despacho import despachar_avisos
 from app.services.sincronizacao import SincronizacaoImpossivel, sincronizar_empresa
 from app.storage import Storage
+from app.whatsapp.base import Whatsapp
 
 log = logging.getLogger(__name__)
 
@@ -49,6 +52,7 @@ class Contexto:
     # O provider é construído uma vez por ciclo: montá-lo carrega e decifra o
     # certificado do contratante, o que não vale repetir por trabalho.
     provider: IntegraProvider
+    whatsapp: Whatsapp
 
 
 # ───────────────────────────────────────────────────────────────────────────
@@ -236,6 +240,27 @@ async def verificar_certificados(engine: AsyncEngine) -> int:
 
 
 # ───────────────────────────────────────────────────────────────────────────
+# Régua de cobrança
+# ───────────────────────────────────────────────────────────────────────────
+
+
+async def avaliar_a_regua(engine: AsyncEngine) -> int:
+    """Cria os avisos do dia. Não envia nada.
+
+    Roda depois da sincronização, porque decidir a régua com débito de ontem
+    mandaria aviso de dívida já paga.
+    """
+    resultado = await avaliar_regua(engine)
+    return resultado.avisos_criados
+
+
+async def despachar_a_regua(engine: AsyncEngine, whatsapp: Whatsapp) -> int:
+    """Envia os avisos liberados. As travas todas estão no despachante."""
+    resultado = await despachar_avisos(engine, whatsapp)
+    return resultado.enviados
+
+
+# ───────────────────────────────────────────────────────────────────────────
 # Registro de handlers
 # ───────────────────────────────────────────────────────────────────────────
 
@@ -253,6 +278,7 @@ async def construir_contexto(
     configurado não deve derrubar o worker — deve aparecer no log e ser corrigido.
     """
     from app.integra.factory import construir_provider
+    from app.whatsapp.factory import construir_whatsapp
 
     try:
         provider = await construir_provider(engine, storage, settings)
@@ -260,4 +286,10 @@ async def construir_contexto(
         log.error("provider do Integra Contador indisponível: %s", exc)
         return None
 
-    return Contexto(engine=engine, storage=storage, settings=settings, provider=provider)
+    return Contexto(
+        engine=engine,
+        storage=storage,
+        settings=settings,
+        provider=provider,
+        whatsapp=construir_whatsapp(settings),
+    )

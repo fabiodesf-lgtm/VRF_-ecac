@@ -353,3 +353,168 @@ def test_reprocessa_consulta_pela_api(cliente: TestClient, empresa_com_certifica
 def test_reprocessar_consulta_inexistente_devolve_404(cliente: TestClient) -> None:
     resp = _assinar_post(cliente, f"/internal/consultas/{uuid.uuid4()}/reprocessar")
     assert resp.status_code == 404
+
+
+# ───────────────────────────────────────────────────────────────────────────
+# Webhook da Evolution (Fase 4)
+# ───────────────────────────────────────────────────────────────────────────
+
+TOKEN_WEBHOOK = "token-de-webhook-bem-longo-e-aleatorio-1234567890"
+
+
+@pytest.fixture
+def cliente_com_webhook(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """TestClient com o token do webhook configurado."""
+    monkeypatch.setenv("INTERNAL_API_SECRET", SEGREDO)
+    monkeypatch.setenv("CERT_MASTER_KEY", gerar_chave_hex())
+    monkeypatch.setenv("DATABASE_URL", DATABASE_URL)
+    monkeypatch.setenv("STORAGE_BACKEND", "local")
+    monkeypatch.setenv("STORAGE_LOCAL_DIR", str(tmp_path / "storage"))
+    monkeypatch.setenv("INTEGRA_PROVIDER", "mock")
+    monkeypatch.setenv("EVOLUTION_MODO", "mock")
+    monkeypatch.setenv("EVOLUTION_WEBHOOK_TOKEN", TOKEN_WEBHOOK)
+    get_settings.cache_clear()
+
+    with TestClient(app) as c:
+        yield c
+
+    get_settings.cache_clear()
+
+
+def payload_webhook(texto: str, numero: str = "5511987654321", mid: str = "W1"):
+    return {
+        "event": "messages.upsert",
+        "instance": "vrf",
+        "data": {
+            "key": {"remoteJid": f"{numero}@s.whatsapp.net", "fromMe": False, "id": mid},
+            "pushName": "Cliente",
+            "message": {"conversation": texto},
+        },
+    }
+
+
+def test_webhook_com_token_errado_devolve_404(cliente_com_webhook: TestClient) -> None:
+    """404 e não 403: não confirma a existência da rota para quem adivinha o token."""
+    resp = cliente_com_webhook.post("/webhooks/evolution/token-errado", json=payload_webhook("oi"))
+    assert resp.status_code == 404
+
+
+def test_webhook_nao_exige_assinatura_hmac(cliente_com_webhook: TestClient) -> None:
+    """Quem chama é a Evolution, que não tem o segredo interno."""
+    resp = cliente_com_webhook.post(
+        f"/webhooks/evolution/{TOKEN_WEBHOOK}", json=payload_webhook("bom dia")
+    )
+    assert resp.status_code == 200
+
+
+def test_webhook_responde_200_para_evento_irrelevante(
+    cliente_com_webhook: TestClient,
+) -> None:
+    """A Evolution reenvia o que não recebe 200; isso criaria fila infinita."""
+    resp = cliente_com_webhook.post(
+        f"/webhooks/evolution/{TOKEN_WEBHOOK}",
+        json={"event": "connection.update", "data": {"state": "open"}},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["acao"] == "evento_ignorado"
+
+
+def test_webhook_responde_200_para_corpo_invalido(
+    cliente_com_webhook: TestClient,
+) -> None:
+    resp = cliente_com_webhook.post(
+        f"/webhooks/evolution/{TOKEN_WEBHOOK}",
+        content=b"isto nao e json",
+        headers={"content-type": "application/json"},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["acao"] == "corpo_invalido"
+
+
+def test_webhook_processa_opt_out_ponta_a_ponta(
+    cliente_com_webhook: TestClient, procurador_id: str
+) -> None:
+    import asyncio
+
+    numero = "5511955554444"
+
+    async def criar() -> str:
+        motor = create_async_engine(DATABASE_URL)
+        try:
+            async with motor.begin() as conexao:
+                await conexao.execute(
+                    text("delete from public.empresas where whatsapp = :w"), {"w": numero}
+                )
+                return str(
+                    (
+                        await conexao.execute(
+                            text(
+                                """
+                                insert into public.empresas
+                                    (cnpj, razao_social, whatsapp, procurador_id)
+                                values (:c, 'CLIENTE OPT OUT LTDA', :w, cast(:p as uuid))
+                                returning id::text
+                                """
+                            ),
+                            {"c": cnpj_aleatorio(), "w": numero, "p": procurador_id},
+                        )
+                    ).scalar_one()
+                )
+        finally:
+            await motor.dispose()
+
+    empresa_id = asyncio.run(criar())
+
+    resp = cliente_com_webhook.post(
+        f"/webhooks/evolution/{TOKEN_WEBHOOK}",
+        json=payload_webhook("SAIR", numero=numero, mid="OPTOUT1"),
+    )
+    assert resp.status_code == 200
+    assert resp.json()["acao"] == "opt_out"
+
+    async def conferir() -> tuple[bool, object]:
+        motor = create_async_engine(DATABASE_URL)
+        try:
+            async with motor.begin() as conexao:
+                linha = (
+                    await conexao.execute(
+                        text(
+                            "select avisos_ativos, opt_out_em from public.empresas "
+                            "where id = cast(:e as uuid)"
+                        ),
+                        {"e": empresa_id},
+                    )
+                ).first()
+                assert linha is not None
+                return bool(linha.avisos_ativos), linha.opt_out_em
+        finally:
+            await motor.dispose()
+
+    ativos, opt_out_em = asyncio.run(conferir())
+    assert ativos is False
+    assert opt_out_em is not None
+
+
+def test_webhook_sem_token_configurado_fica_fechado(
+    cliente: TestClient,
+) -> None:
+    """Aberto, qualquer um poderia disparar um opt-out em nome do cliente."""
+    resp = cliente.post("/webhooks/evolution/qualquer", json=payload_webhook("oi"))
+    assert resp.status_code == 503
+
+
+def test_estado_do_whatsapp(cliente: TestClient) -> None:
+    caminho = "/internal/whatsapp/estado"
+    ts = str(time.time())
+    sig = assinar(SEGREDO, "GET", caminho, b"", ts)
+    resp = cliente.send(
+        cliente.build_request(
+            "GET",
+            caminho,
+            headers={"x-vrf-timestamp": ts, "x-vrf-signature": sig},
+        )
+    )
+    assert resp.status_code == 200
+    corpo = resp.json()
+    assert corpo["modo"] == "mock"
+    assert corpo["conectada"] is True

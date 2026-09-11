@@ -5,6 +5,8 @@ Duas tarefas de relógio e um consumidor de fila:
 - **06:00 (São Paulo)** — enfileira a consulta ao e-CAC das empresas elegíveis,
   espalhada em meia hora;
 - **07:00 (São Paulo)** — verifica certificados vencendo;
+- **08:00 (São Paulo)** — avalia a régua e cria os avisos do dia;
+- **a cada 5 min** — despacha os avisos liberados (o despachante checa a janela);
 - **a cada 30 s** — drena a fila.
 
 O relógio usa America/Sao_Paulo, não UTC: "06:00" aqui significa 06:00 para quem
@@ -29,17 +31,24 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 from app.config import Settings
 from app.jobs.fila import drenar
 from app.jobs.tarefas_agendadas import (
+    avaliar_a_regua,
     construir_contexto,
+    despachar_a_regua,
     enfileirar_sincronizacoes,
     montar_handlers,
     verificar_certificados,
 )
 from app.storage import Storage
+from app.whatsapp.factory import construir_whatsapp
 
 log = logging.getLogger(__name__)
 
 FUSO = ZoneInfo("America/Sao_Paulo")
 INTERVALO_FILA_S = 30
+# O despacho roda com folga: cada ciclo manda no máximo `envio.max_por_execucao`
+# avisos com intervalo aleatório entre eles, então cinco minutos distribuem o
+# volume pela janela em vez de concentrá-lo na abertura.
+INTERVALO_DESPACHO_S = 300
 
 
 def montar_agendador(engine: AsyncEngine, storage: Storage, settings: Settings) -> AsyncIOScheduler:
@@ -59,6 +68,16 @@ def montar_agendador(engine: AsyncEngine, storage: Storage, settings: Settings) 
     async def ciclo_certificados() -> None:
         await verificar_certificados(engine)
 
+    async def ciclo_avaliar_regua() -> None:
+        criados = await avaliar_a_regua(engine)
+        if criados:
+            log.info("régua avaliada: %d aviso(s) criado(s)", criados)
+
+    async def ciclo_despachar_regua() -> None:
+        enviados = await despachar_a_regua(engine, construir_whatsapp(settings))
+        if enviados:
+            log.info("régua despachada: %d aviso(s) enviado(s)", enviados)
+
     agendador.add_job(
         ciclo_diario,
         CronTrigger(hour=6, minute=0, timezone=FUSO),
@@ -76,6 +95,26 @@ def montar_agendador(engine: AsyncEngine, storage: Storage, settings: Settings) 
         misfire_grace_time=3600,
         coalesce=True,
         max_instances=1,
+    )
+    # A régua é avaliada às 08:00, depois de a sincronização das 06:00 ter tempo
+    # de rodar: decidir a cobrança com débito de ontem mandaria aviso de dívida
+    # já paga.
+    agendador.add_job(
+        ciclo_avaliar_regua,
+        CronTrigger(hour=8, minute=0, timezone=FUSO),
+        id="avaliar_regua",
+        misfire_grace_time=3600,
+        coalesce=True,
+        max_instances=1,
+    )
+    agendador.add_job(
+        ciclo_despachar_regua,
+        IntervalTrigger(seconds=INTERVALO_DESPACHO_S),
+        id="despachar_regua",
+        # O despachante já checa a janela; o intervalo só decide com que
+        # frequência ele olha.
+        max_instances=1,
+        coalesce=True,
     )
     agendador.add_job(
         ciclo_da_fila,

@@ -483,6 +483,8 @@ export type Database = {
           observacao: string | null;
           created_at: string;
           updated_at: string;
+          opt_out_em: string | null;
+          opt_out_origem: string | null;
         };
         Insert: {
           id?: string;
@@ -499,6 +501,8 @@ export type Database = {
           observacao?: string | null;
           created_at?: string;
           updated_at?: string;
+          opt_out_em?: string | null;
+          opt_out_origem?: string | null;
         };
         Update: {
           id?: string;
@@ -515,6 +519,8 @@ export type Database = {
           observacao?: string | null;
           created_at?: string;
           updated_at?: string;
+          opt_out_em?: string | null;
+          opt_out_origem?: string | null;
         };
         Relationships: [
           {
@@ -1056,6 +1062,29 @@ export type Database = {
       };
     };
     Views: {
+      avisos_detalhe: {
+        Row: {
+          id: string | null;
+          empresa_id: string | null;
+          cnpj: string | null;
+          razao_social: string | null;
+          whatsapp: string | null;
+          marco: Database["public"]["Enums"]["marco"] | null;
+          agendado_para: string | null;
+          status: Database["public"]["Enums"]["aviso_status"] | null;
+          tentativas: number | null;
+          erro: string | null;
+          enviado_em: string | null;
+          created_at: string | null;
+          mensagem_id: string | null;
+          status_mensagem: Database["public"]["Enums"]["mensagem_status"] | null;
+          evolution_message_id: string | null;
+          qtd_debitos: number | null;
+          total: number | null;
+          marco_agendado_para: string | null;
+        };
+        Relationships: [];
+      };
       configuracoes_publicas: {
         Row: {
           chave: string | null;

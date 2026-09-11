@@ -9,6 +9,7 @@ const NAV = [
   { href: "/empresas", rotulo: "Empresas" },
   { href: "/procuradores", rotulo: "Procuradores" },
   { href: "/debitos", rotulo: "Débitos" },
+  { href: "/regua", rotulo: "Régua" },
   { href: "/atendimento", rotulo: "Atendimento" },
 ];
 

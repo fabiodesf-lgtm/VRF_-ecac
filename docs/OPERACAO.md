@@ -9,6 +9,8 @@ quando algo sai do lugar.
 06:00 (São Paulo)  enfileira a consulta ao e-CAC de cada empresa elegível,
                    espalhada ao longo de 30 minutos
 07:00              verifica certificados vencendo e abre tarefa
+08:00              avalia a régua e cria os avisos do dia (NÃO envia)
+a cada 5 min       despacha os avisos liberados (checa a janela)
 a cada 30 s        drena a fila de trabalhos
 ```
 
@@ -127,7 +129,11 @@ uma tarefa de `parse_baixa_confianca`.
 | `SCHEDULER_ATIVO` (env) | liga/desliga todo o trabalho automático |
 | `INTEGRA_PROVIDER` (env) | `mock` não faz nenhuma chamada real |
 | `sitfis.sync_por_dia` | consultas por empresa por dia |
-| `regua.kill_switch` | (Fase 4) para todo envio de mensagem |
+| `regua.kill_switch` | para todo envio de mensagem, por qualquer caminho |
+| `EVOLUTION_MODO` (env) | `mock` não manda nada; `real` envia de verdade |
 
-`regua.kill_switch` já existe no seed e ainda não tem efeito: a régua é a Fase 4.
-Nenhuma mensagem é enviada ao cliente no estado atual do sistema.
+O kill switch vale para **todos** os caminhos: agendador, botões do painel e
+endpoints internos. Só um administrador pode acioná-lo, em `/regua`.
+
+A régua e suas travas estão documentadas em [`REGUA.md`](REGUA.md); o gateway do
+WhatsApp e o risco que ele carrega, em [`evolution-api.md`](evolution-api.md).
