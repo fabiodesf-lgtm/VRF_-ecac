@@ -9,8 +9,8 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 
 from app.config import Settings, get_settings
 from app.db import get_engine
-from app.integra.base import IntegraProvider
-from app.integra.mock import MockProvider
+from app.integra.base import IntegraError, IntegraProvider
+from app.integra.factory import construir_provider
 from app.storage import Storage, construir_storage
 
 
@@ -34,19 +34,26 @@ def storage_dep(settings: SettingsDep) -> Storage:
     )
 
 
-def integra_dep(settings: SettingsDep) -> IntegraProvider:
-    if settings.integra_provider == "serpro":
-        # Fase 2. Até lá, falhar alto é melhor que cair silenciosamente no mock:
-        # ninguém deve acreditar que está falando com a SERPRO sem estar.
-        raise HTTPException(
-            status_code=status.HTTP_501_NOT_IMPLEMENTED,
-            detail=(
-                "provider 'serpro' ainda não implementado (Fase 2). Use INTEGRA_PROVIDER=mock."
-            ),
-        )
-    return MockProvider()
-
-
 EngineDep = Annotated[AsyncEngine, Depends(engine_dep)]
 StorageDep = Annotated[Storage, Depends(storage_dep)]
+
+
+async def integra_dep(
+    settings: SettingsDep, engine: EngineDep, storage: StorageDep
+) -> IntegraProvider:
+    """Constrói o provider do Integra Contador conforme a configuração.
+
+    Erro de configuração do provider real vira 503 com a mensagem da própria
+    exceção: ela diz exatamente o que falta — CNPJ do contratante, certificado
+    eCNPJ, credenciais do contrato — e esconder isso atrás de um 500 genérico só
+    atrasaria o diagnóstico.
+    """
+    try:
+        return await construir_provider(engine, storage, settings)
+    except IntegraError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)
+        ) from exc
+
+
 IntegraDep = Annotated[IntegraProvider, Depends(integra_dep)]

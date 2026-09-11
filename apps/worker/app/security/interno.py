@@ -7,6 +7,13 @@ timestamp``, com um segredo compartilhado (``INTERNAL_API_SECRET``).
 Assinar o corpo, e não só a rota, impede que uma requisição capturada seja
 reaproveitada com outro payload. O timestamp, com janela curta, limita o replay
 de uma requisição idêntica.
+
+**``caminho`` inclui a query string.** Deixá-la de fora permitiria acrescentar
+parâmetros a uma requisição já assinada — trocar
+``/empresas/x/sincronizar`` por ``/empresas/x/sincronizar?forcar=true``
+transformaria uma consulta que respeita a cota diária numa consulta forçada, e
+cada consulta ao Integra Contador é cobrada. Use :func:`caminho_assinado` para
+montar esse valor dos dois lados.
 """
 
 from __future__ import annotations
@@ -22,6 +29,17 @@ HEADER_TIMESTAMP = "x-vrf-timestamp"
 
 class AssinaturaInvalida(Exception):
     pass
+
+
+def caminho_assinado(path: str, query_string: str = "") -> str:
+    """Monta o caminho que entra na assinatura: rota mais query string.
+
+    Centralizado para que o cliente e o servidor não possam divergir na forma de
+    compor esse valor — divergir aqui produz 401 em tudo, ou pior, deixa um
+    parâmetro fora da proteção.
+    """
+    limpa = query_string.lstrip("?")
+    return f"{path}?{limpa}" if limpa else path
 
 
 def _mensagem(metodo: str, caminho: str, corpo: bytes, timestamp: str) -> bytes:

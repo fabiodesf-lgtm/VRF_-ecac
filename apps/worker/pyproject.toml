@@ -15,6 +15,11 @@ dependencies = [
     "pdfplumber>=0.11",
     "python-multipart>=0.0.20",
     "apscheduler>=3.11",
+    # Assinatura XMLDSig do Termo de Autorização do procurador. Assinatura de XML
+    # é cheia de detalhe de canonicalização; usar biblioteca testada em vez de
+    # montar a estrutura à mão.
+    "signxml>=4.0",
+    "lxml>=5.3",
 ]
 
 [project.optional-dependencies]
@@ -24,6 +29,7 @@ dev = [
     "ruff>=0.8",
     "mypy>=1.13",
     "respx>=0.22",
+    "lxml-stubs>=0.5",
 ]
 
 [tool.ruff]
@@ -43,6 +49,10 @@ ignore = [
 
 [tool.ruff.lint.per-file-ignores]
 "tests/*" = ["S105", "S106"]  # senhas de teste hardcoded
+# Os padrões das seções aceitam hífen e travessão (- e –) porque o relatório da
+# Receita usa os dois, dependendo de como o PDF foi gerado. O RUF001 sinaliza o
+# travessão como caractere ambíguo; aqui ele é necessário, não acidente.
+"app/parsers/secoes.py" = ["RUF001"]
 
 [tool.mypy]
 python_version = "3.11"
@@ -51,8 +61,11 @@ warn_return_any = true
 plugins = []
 
 [[tool.mypy.overrides]]
-module = ["pdfplumber.*", "apscheduler.*"]
+# Bibliotecas sem py.typed. signxml exporta os símbolos em runtime mas não os
+# declara no __all__, então o mypy não os vê pelo pacote raiz.
+module = ["pdfplumber.*", "apscheduler.*", "signxml.*"]
 ignore_missing_imports = true
+follow_imports = "skip"
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

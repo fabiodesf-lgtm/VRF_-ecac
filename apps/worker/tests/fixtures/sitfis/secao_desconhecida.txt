@@ -1,0 +1,17 @@
+RELATÓRIO DE SITUAÇÃO FISCAL
+
+CNPJ: 11.222.333/0001-81
+
+Pendência - Débito (SIEF)
+Receita          PA               Vencimento    Vl.Original      Saldo Devedor   Situação
+2089-01          08/2026          20/08/2026        4.320,00          4.320,00   DEVEDOR
+
+Pendência - Modalidade Fiscal Inventada (XPTO)
+Alguma coisa     Outra coisa      99,99
+Mais uma linha   com dados        11,11
+
+Pendência - Débito (SICOB)
+Receita          PA               Vencimento    Vl.Original      Saldo Devedor   Situação
+1410-01          07/2026          25/07/2026        1.180,50          1.250,30   DEVEDOR
+
+FIM DO RELATÓRIO

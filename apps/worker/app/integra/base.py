@@ -154,6 +154,17 @@ class IntegraProvider(Protocol):
         self, *, contribuinte_cnpj: str, protocolo: Protocolo, token: TokenProcurador
     ) -> RelatorioSitfis: ...
 
+    async def obter_relatorio_sitfis(
+        self, *, contribuinte_cnpj: str, token: TokenProcurador, tentativas: int = 3
+    ) -> tuple[Protocolo, RelatorioSitfis]:
+        """Fluxo completo: solicita o protocolo, respeita a espera e emite.
+
+        Existe no contrato — e não só como conveniência do cliente real — porque
+        respeitar o `tempoEspera` é parte da corretude: emitir antes da hora
+        devolve 202 e queima uma chamada cobrada sem trazer nada.
+        """
+        ...
+
     async def gerar_darf(
         self,
         *,

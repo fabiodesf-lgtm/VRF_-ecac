@@ -2,7 +2,13 @@ import { readFileSync } from "node:fs";
 
 import { beforeAll, describe, expect, it } from "vitest";
 
-import { WorkerError, enviarCertificado, saudeWorker } from "./worker";
+import {
+  WorkerError,
+  enviarCertificado,
+  reprocessarConsulta,
+  saudeWorker,
+  sincronizarEmpresa,
+} from "./worker";
 
 /**
  * Integração real painel → worker.
@@ -19,6 +25,8 @@ import { WorkerError, enviarCertificado, saudeWorker } from "./worker";
  *   E2E_PROCURADOR_ID  — procurador já existente no banco do worker
  *   E2E_PFX            — caminho do .pfx de teste
  *   E2E_PFX_SENHA      — senha do .pfx
+ *   E2E_EMPRESA_ID              — empresa vinculada a esse procurador
+ *   E2E_EMPRESA_SEM_PROCURADOR  — empresa sem procurador, para o caminho de erro
  */
 const ativo = process.env.WORKER_E2E === "1";
 const descreve = ativo ? describe : describe.skip;
@@ -104,5 +112,45 @@ descreve("integração com o worker", () => {
     }).catch((e: unknown) => e);
     expect(erro).toBeInstanceOf(WorkerError);
     expect((erro as WorkerError).status).toBe(422);
+  });
+});
+
+descreve("sincronização com o e-CAC", () => {
+  const empresaId = process.env.E2E_EMPRESA_ID ?? "";
+
+  it("dispara a consulta e recebe os débitos", async () => {
+    const r = await sincronizarEmpresa(empresaId);
+    expect(r.ok).toBe(true);
+    expect(r.status).toBe("concluido");
+    expect(r.debitos_novos).toBeGreaterThan(0);
+    expect(r.protocolo).toBeTruthy();
+  });
+
+  it("respeita a cota diária na segunda tentativa", async () => {
+    const segunda = await sincronizarEmpresa(empresaId);
+    expect(segunda.status).toBe("pulado");
+    expect(segunda.mensagem.toLowerCase()).toContain("cota");
+  });
+
+  it("forçar funciona — e prova que a query string está na assinatura", async () => {
+    // Este é o teste que pega a brecha: se a query string ficasse fora do HMAC,
+    // o worker responderia 401 aqui, porque o caminho assinado não bateria.
+    const forcada = await sincronizarEmpresa(empresaId, { forcar: true });
+    expect(forcada.status).toBe("concluido");
+    // Nada de novo: é o mesmo relatório, então os débitos são atualizados.
+    expect(forcada.debitos_novos).toBe(0);
+    expect(forcada.debitos_atualizados).toBeGreaterThan(0);
+  });
+
+  it("reprocessa o relatório guardado sem chamar a SERPRO", async () => {
+    const sync = await sincronizarEmpresa(empresaId, { forcar: true });
+    const reprocessado = await reprocessarConsulta(sync.consulta_id);
+    expect(reprocessado.ok).toBe(true);
+    expect(reprocessado.debitos_novos).toBe(0);
+  });
+
+  it("empresa sem procurador devolve erro aproveitável", async () => {
+    const semProcurador = process.env.E2E_EMPRESA_SEM_PROCURADOR ?? "";
+    await expect(sincronizarEmpresa(semProcurador)).rejects.toMatchObject({ status: 422 });
   });
 });

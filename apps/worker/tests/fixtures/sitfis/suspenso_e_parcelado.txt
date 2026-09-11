@@ -1,0 +1,20 @@
+RELATÓRIO DE SITUAÇÃO FISCAL
+
+CNPJ: 11.222.333/0001-81
+
+Pendência - Débito com exigibilidade suspensa (SIEF)
+Receita          PA               Vencimento    Vl.Original      Saldo Devedor   Situação
+2172-01          05/2026          20/05/2026        8.000,00          8.000,00   SUSPENSO POR DECISAO JUDICIAL
+
+Pendência - Débito (SIEF)
+Receita          PA               Vencimento    Vl.Original      Saldo Devedor   Situação
+0220-01          06/2026          20/06/2026       12.900,00         13.400,00   DEVEDOR
+5952-01          04/2026          20/04/2026        2.000,00          2.000,00   SUSPENSO POR IMPUGNACAO
+1708-01          03/2026          20/03/2026        1.500,00          1.500,00   PARCELADO
+4600-01          02/2026          20/02/2026          900,00              0,00   PAGO
+
+Parcelamento com exigibilidade suspensa (SIEFPAR)
+Modalidade                               Parcelas    Situação
+PARCELAMENTO ESPECIAL - LEI 11.941/09    12/180      AGUARDANDO ANALISE
+
+FIM DO RELATÓRIO

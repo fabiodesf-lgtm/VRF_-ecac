@@ -10,8 +10,9 @@ import {
   formatarMoeda,
   formatarWhatsapp,
 } from "@/lib/validacao";
-import { atualizarEmpresa } from "../acoes";
+import { atualizarEmpresa, sincronizarComEcac } from "../acoes";
 import { FormularioEmpresa, type OpcaoProcurador } from "../formulario";
+import { BotaoSincronizar } from "../sincronizar";
 
 export const dynamic = "force-dynamic";
 
@@ -23,7 +24,12 @@ export default async function DetalheEmpresa({
   const { id } = await params;
   const supabase = await criarClienteServidor();
 
-  const [{ data: empresa }, { data: debitos }, { data: listaProcuradores }] = await Promise.all([
+  const [
+    { data: empresa },
+    { data: debitos },
+    { data: listaProcuradores },
+    { data: consultas },
+  ] = await Promise.all([
     supabase
       .from("empresas")
       .select("id, cnpj, razao_social, nome_fantasia, whatsapp, email, procurador_id, status, avisos_ativos, procuracao_ecac_ok, consentimento_whatsapp_em, observacao, created_at, procuradores(id, nome, cpf_cnpj)")
@@ -40,6 +46,12 @@ export default async function DetalheEmpresa({
       .select("id, nome, cpf_cnpj, procurador_certificados(id)")
       .eq("status", "ativo")
       .order("nome"),
+    supabase
+      .from("sitfis_consultas")
+      .select("id, status, parse_status, protocolo, erro, parse_resumo, iniciado_em, concluido_em")
+      .eq("empresa_id", id)
+      .order("iniciado_em", { ascending: false })
+      .limit(10),
   ]);
 
   if (!empresa) notFound();
@@ -53,6 +65,18 @@ export default async function DetalheEmpresa({
 
   const emAberto = debitos ?? [];
   const total = emAberto.reduce((s, d) => s + Number(d.saldo_devedor ?? 0), 0);
+
+  const historico = consultas ?? [];
+  const inicioDoDia = new Date();
+  inicioDoDia.setHours(0, 0, 0, 0);
+  const consultasHoje = historico.filter(
+    (c) =>
+      new Date(c.iniciado_em) >= inicioDoDia &&
+      ["solicitado", "aguardando", "concluido"].includes(c.status),
+  ).length;
+  // A cota real é aplicada no worker; aqui ela só decide o que a interface mostra.
+  const cotaDisponivel = consultasHoje === 0;
+  const ultima = historico[0];
 
   return (
     <div className="space-y-5">
@@ -172,6 +196,89 @@ export default async function DetalheEmpresa({
         </Card>
       </div>
 
+      <div className="grid gap-4 lg:grid-cols-2">
+        <Card titulo="Consultar o e-CAC">
+          <div className="space-y-3">
+            <p className="text-sm text-tinta-fraca">
+              Busca a situação fiscal desta empresa no e-CAC pelo certificado do procurador e
+              atualiza os débitos.{" "}
+              <strong className="text-tinta">Cada consulta ao Integra Contador é cobrada</strong>,
+              por isso há uma cota diária por empresa.
+            </p>
+            {!empresa.procurador_id ? (
+              <Aviso tom="alerta">
+                Vincule um procurador com certificado digital antes de consultar.
+              </Aviso>
+            ) : (
+              <>
+                <BotaoSincronizar
+                  acao={sincronizarComEcac.bind(null, empresa.id)}
+                  cotaDisponivel={cotaDisponivel}
+                />
+                <p className="text-xs text-tinta-fraca">
+                  {cotaDisponivel
+                    ? "Cota de hoje disponível."
+                    : `${consultasHoje} consulta(s) feita(s) hoje — cota já utilizada.`}
+                </p>
+              </>
+            )}
+          </div>
+        </Card>
+
+        <Card titulo="Últimas consultas">
+          {historico.length === 0 ? (
+            <Vazio titulo="Nenhuma consulta ainda">
+              O histórico de consultas ao e-CAC aparece aqui.
+            </Vazio>
+          ) : (
+            <ul className="divide-y divide-linha text-sm">
+              {historico.map((c) => (
+                <li key={c.id} className="py-2 first:pt-0 last:pb-0">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="tabular text-tinta-fraca">
+                      {formatarData(c.iniciado_em)}
+                    </span>
+                    <div className="flex flex-wrap gap-1.5">
+                      <Etiqueta
+                        tom={
+                          c.status === "concluido"
+                            ? "sucesso"
+                            : c.status === "erro"
+                              ? "alerta"
+                              : "atencao"
+                        }
+                      >
+                        {c.status}
+                      </Etiqueta>
+                      {c.status === "concluido" && c.parse_status !== "ok" && (
+                        <Etiqueta tom="atencao">parse {c.parse_status}</Etiqueta>
+                      )}
+                    </div>
+                  </div>
+                  {c.erro && (
+                    <p className="mt-0.5 text-xs text-alerta">{c.erro}</p>
+                  )}
+                  {resumoDaConsulta(c.parse_resumo) && (
+                    <p className="mt-0.5 text-xs text-tinta-fraca">
+                      {resumoDaConsulta(c.parse_resumo)}
+                    </p>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+          {ultima?.parse_status === "parcial" && (
+            <div className="mt-3">
+              <Aviso tom="atencao">
+                O último relatório teve seções não reconhecidas. Por segurança, nenhum débito
+                foi dado como resolvido nessa consulta — um débito ausente de um relatório
+                mal lido pode continuar existindo.
+              </Aviso>
+            </div>
+          )}
+        </Card>
+      </div>
+
       <div>
         <h2 className="mb-3 text-sm font-semibold text-tinta">Editar cadastro</h2>
         <FormularioEmpresa
@@ -193,6 +300,28 @@ export default async function DetalheEmpresa({
       </div>
     </div>
   );
+}
+
+/** Resume o parse de uma consulta em uma linha, quando houver dados. */
+function resumoDaConsulta(resumo: unknown): string | null {
+  if (!resumo || typeof resumo !== "object") return null;
+  const r = resumo as {
+    debitos?: number;
+    cobraveis?: number;
+    baixa_confianca?: number;
+    secoes_desconhecidas?: string[];
+    nada_consta?: boolean;
+  };
+  if (r.nada_consta && !r.debitos) return "Nada consta.";
+
+  const partes: string[] = [];
+  if (typeof r.debitos === "number") partes.push(`${r.debitos} débito(s)`);
+  if (r.cobraveis) partes.push(`${r.cobraveis} cobrável(is)`);
+  if (r.baixa_confianca) partes.push(`${r.baixa_confianca} para conferência`);
+  if (r.secoes_desconhecidas?.length) {
+    partes.push(`${r.secoes_desconhecidas.length} seção(ões) não reconhecida(s)`);
+  }
+  return partes.length > 0 ? partes.join(" · ") : null;
 }
 
 function Item({ rotulo, children }: { rotulo: string; children: React.ReactNode }) {

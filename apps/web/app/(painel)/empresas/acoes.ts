@@ -6,6 +6,7 @@ import { z } from "zod";
 import type { Json } from "@/lib/database.types";
 import { criarClienteServidor, usuarioAtual } from "@/lib/supabase/server";
 import { cnpjValido, normalizarWhatsapp, soDigitos } from "@/lib/validacao";
+import { WorkerError, sincronizarEmpresa } from "@/lib/worker";
 
 /**
  * Server actions do cadastro de empresas.
@@ -196,4 +197,80 @@ async function registrarAuditoria(
     depois,
   });
   if (error) console.error(`falha ao registrar auditoria de ${acao}:`, error.message);
+}
+
+
+export type ResultadoSincronizacao =
+  | {
+      ok: true;
+      status: "concluido" | "aguardando" | "erro" | "expirado" | "pulado";
+      mensagem: string;
+      debitosNovos: number;
+      debitosAtualizados: number;
+      debitosResolvidos: number;
+      baixaConfianca: number;
+      secoesDesconhecidas: string[];
+    }
+  | { ok: false; erro: string };
+
+/**
+ * Dispara a consulta da situação fiscal no e-CAC.
+ *
+ * A cota diária é aplicada no worker, não aqui: é lá que a chamada cobrada
+ * acontece, e a trava precisa valer para qualquer caminho que chegue nele — o
+ * botão do painel, um job agendado ou um script.
+ */
+export async function sincronizarComEcac(
+  empresaId: string,
+  _anterior: unknown,
+  dados: FormData,
+): Promise<ResultadoSincronizacao> {
+  const forcar = dados.get("forcar") === "true";
+
+  try {
+    const resposta = await sincronizarEmpresa(empresaId, { forcar });
+
+    revalidatePath(`/empresas/${empresaId}`);
+    revalidatePath("/empresas");
+    revalidatePath("/debitos");
+    revalidatePath("/");
+
+    await registrarAuditoria("empresa.sincronizada", "empresas", empresaId, {
+      status: resposta.status,
+      forcada: forcar,
+      debitos_novos: resposta.debitos_novos,
+      debitos_resolvidos: resposta.debitos_resolvidos,
+    });
+
+    return {
+      ok: true,
+      status: resposta.status,
+      mensagem: resposta.mensagem,
+      debitosNovos: resposta.debitos_novos,
+      debitosAtualizados: resposta.debitos_atualizados,
+      debitosResolvidos: resposta.debitos_resolvidos,
+      baixaConfianca: resposta.baixa_confianca,
+      secoesDesconhecidas: resposta.secoes_desconhecidas,
+    };
+  } catch (erro) {
+    if (erro instanceof WorkerError) {
+      // 422 e 503 do worker trazem mensagem pensada para quem opera: falta de
+      // procurador, certificado vencido, contratante não configurado.
+      if (erro.status === 422 || erro.status === 503 || erro.status === 502) {
+        return { ok: false, erro: erro.message };
+      }
+      if (erro.status === 401) {
+        return {
+          ok: false,
+          erro: "O painel não conseguiu se autenticar no worker. Verifique INTERNAL_API_SECRET nos dois lados.",
+        };
+      }
+      return { ok: false, erro: `O worker recusou a consulta (${erro.status}): ${erro.message}` };
+    }
+    console.error("falha ao sincronizar com o e-CAC:", erro);
+    return {
+      ok: false,
+      erro: "Não foi possível falar com o worker. Verifique se ele está no ar e tente novamente.",
+    };
+  }
 }

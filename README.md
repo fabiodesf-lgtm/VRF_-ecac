@@ -9,25 +9,30 @@ recálculo, ciência e encaminhamento para atendimento humano.
 
 ## Estado
 
-**Fases 0 e 1 concluídas.** O que já funciona:
+**Fases 0, 1 e 2 concluídas.** O que já funciona:
 
 - schema completo com RLS, auditoria e validação de CNPJ/CPF no banco;
 - autenticação da equipe (primeiro usuário entra como admin);
-- cadastro de empresas (CNPJ, razão social, WhatsApp, e-mail, procurador,
-  consentimento LGPD);
-- cadastro de procuradores com **upload do certificado A1**, validado e cifrado
-  com AES-256-GCM;
-- `MockProvider` do Integra Contador, que reproduz o SITFIS assíncrono de verdade
-  (202 dentro do tempo de espera, 204 para protocolo expirado, erro de
-  procuração ausente);
+- cadastro de empresas e de procuradores, com **upload do certificado A1**
+  validado e cifrado com AES-256-GCM;
+- **integração com o Integra Contador**: autenticação com mTLS, Termo de
+  Autorização assinado em XMLDSig, SITFIS em duas etapas com respeito ao tempo de
+  espera, e SICALC para o DARF;
+- **parser do Relatório de Situação Fiscal**, que extrai os débitos do PDF com
+  confiança explícita por débito — só débito confiável entra na cobrança
+  automática;
+- **sincronização** com cota diária (cada consulta é cobrada), relatório guardado
+  para auditoria e reprocessamento gratuito;
 - CI com lint, typecheck, testes e build.
 
-**A API do Integra Contador ainda não foi contratada.** Por isso todo o acesso à
-SERPRO fica atrás da interface `IntegraProvider`: o sistema é construído e
-testado hoje com fixtures, e a virada é `INTEGRA_PROVIDER=serpro`.
+**A API do Integra Contador ainda não foi contratada.** Todo o acesso à SERPRO
+fica atrás da interface `IntegraProvider`: o sistema é construído e testado hoje
+com fixtures, e a virada é `INTEGRA_PROVIDER=serpro`. O que precisa ser conferido
+na contratação está no checklist de
+[`docs/integra-contador.md`](docs/integra-contador.md).
 
-Próxima fase: coleta de débitos no e-CAC (mTLS, AutenticaProcurador, SITFIS e o
-parser do relatório).
+Próxima fase: organização dos débitos e dashboards (Fase 3), depois a régua de
+cobrança (Fase 4).
 
 ## Documentação
 
@@ -36,6 +41,8 @@ parser do relatório).
 | [`docs/PLANO.md`](docs/PLANO.md) | Arquitetura e plano completo das 7 fases |
 | [`docs/DESENVOLVIMENTO.md`](docs/DESENVOLVIMENTO.md) | Como rodar, testar e gerar os tipos |
 | [`docs/SEGURANCA.md`](docs/SEGURANCA.md) | Tratamento do certificado digital e dos segredos |
+| [`docs/integra-contador.md`](docs/integra-contador.md) | Integração com a SERPRO e checklist de contratação |
+| [`docs/PARSER.md`](docs/PARSER.md) | O parser do relatório e as proteções contra cobrança errada |
 
 ## Estrutura
 

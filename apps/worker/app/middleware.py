@@ -20,6 +20,7 @@ from app.security.interno import (
     HEADER_ASSINATURA,
     HEADER_TIMESTAMP,
     AssinaturaInvalida,
+    caminho_assinado,
     verificar,
 )
 
@@ -81,11 +82,15 @@ class AssinaturaInternaMiddleware:
             await self._responder(send, 500, str(exc))
             return
 
+        # A query string entra na assinatura: sem ela, um parâmetro como
+        # ?forcar=true poderia ser acrescentado a uma requisição já assinada.
+        caminho = caminho_assinado(scope["path"], scope.get("query_string", b"").decode("latin-1"))
+
         try:
             verificar(
                 segredo,
                 scope["method"],
-                scope["path"],
+                caminho,
                 bytes(corpo),
                 cabecalhos.get(HEADER_TIMESTAMP, ""),
                 cabecalhos.get(HEADER_ASSINATURA, ""),

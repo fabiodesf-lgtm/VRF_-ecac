@@ -16,9 +16,15 @@ from typing import Annotated
 
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile, status
 
-from app.deps import EngineDep, SettingsDep, StorageDep
+from app.deps import EngineDep, IntegraDep, SettingsDep, StorageDep
+from app.integra.base import IntegraError
 from app.security.certificado import CertificadoInvalido
 from app.services.certificados import ProcuradorNaoEncontrado, armazenar_certificado
+from app.services.sincronizacao import (
+    SincronizacaoImpossivel,
+    reprocessar_relatorio,
+    sincronizar_empresa,
+)
 
 log = logging.getLogger(__name__)
 
@@ -80,3 +86,81 @@ async def enviar_certificado(
         armazenado.dados.not_after.date(),
     )
     return {"ok": True, "certificado": armazenado.resumo}
+
+
+@router.post("/empresas/{empresa_id}/sincronizar")
+async def sincronizar(
+    empresa_id: str,
+    engine: EngineDep,
+    storage: StorageDep,
+    settings: SettingsDep,
+    provider: IntegraDep,
+    forcar: bool = False,
+) -> dict[str, object]:
+    """Consulta a situação fiscal da empresa no e-CAC e atualiza os débitos.
+
+    `forcar=true` ignora a cota diária. A cota existe porque cada chamada ao
+    Integra Contador é cobrada, então forçar é decisão consciente de quem opera,
+    não o caminho padrão.
+    """
+    try:
+        resultado = await sincronizar_empresa(
+            engine,
+            storage,
+            provider,
+            empresa_id=empresa_id,
+            chave_mestra=settings.chave_mestra,
+            contratante_cnpj=settings.serpro_contratante_cnpj or "",
+            forcar=forcar,
+        )
+    except SincronizacaoImpossivel as exc:
+        # Falta pré-requisito de cadastro: é erro do pedido, não do servidor.
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(exc)) from exc
+    except IntegraError as exc:
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, str(exc)) from exc
+
+    log.info(
+        "sincronizacao empresa=%s status=%s novos=%d atualizados=%d resolvidos=%d",
+        empresa_id,
+        resultado.status,
+        resultado.debitos_novos,
+        resultado.debitos_atualizados,
+        resultado.debitos_resolvidos,
+    )
+    return {
+        "ok": resultado.ok,
+        "status": resultado.status,
+        "mensagem": resultado.mensagem,
+        "consulta_id": resultado.consulta_id,
+        "protocolo": resultado.protocolo,
+        "debitos_novos": resultado.debitos_novos,
+        "debitos_atualizados": resultado.debitos_atualizados,
+        "debitos_resolvidos": resultado.debitos_resolvidos,
+        "baixa_confianca": resultado.baixa_confianca,
+        "secoes_desconhecidas": list(resultado.secoes_desconhecidas),
+    }
+
+
+@router.post("/consultas/{consulta_id}/reprocessar")
+async def reprocessar(
+    consulta_id: str, engine: EngineDep, storage: StorageDep
+) -> dict[str, object]:
+    """Relê um relatório já guardado, sem gastar chamada na SERPRO.
+
+    É o que torna seguro melhorar o parser: quando uma seção nova passa a ser
+    reconhecida, os relatórios antigos podem ser relidos de graça.
+    """
+    try:
+        resultado = await reprocessar_relatorio(engine, storage, consulta_id=consulta_id)
+    except SincronizacaoImpossivel as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
+
+    return {
+        "ok": resultado.ok,
+        "mensagem": resultado.mensagem,
+        "debitos_novos": resultado.debitos_novos,
+        "debitos_atualizados": resultado.debitos_atualizados,
+        "debitos_resolvidos": resultado.debitos_resolvidos,
+        "baixa_confianca": resultado.baixa_confianca,
+        "secoes_desconhecidas": list(resultado.secoes_desconhecidas),
+    }

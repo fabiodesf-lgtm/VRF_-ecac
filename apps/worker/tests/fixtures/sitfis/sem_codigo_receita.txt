@@ -1,0 +1,10 @@
+RELATÓRIO DE SITUAÇÃO FISCAL
+
+Pendência - Débito (SIEF)
+Receita          PA               Vencimento    Vl.Original      Saldo Devedor   Situação
+2089-01          08/2026          20/08/2026        4.320,00          4.320,00   DEVEDOR
+                 07/2026          25/07/2026        1.000,00          1.000,00   DEVEDOR
+3373-01          3º TRIM/2026                       5.000,00          5.000,00   DEVEDOR
+1234-01          2025             31/12/2025        7.700,00                     DEVEDOR
+
+FIM DO RELATÓRIO

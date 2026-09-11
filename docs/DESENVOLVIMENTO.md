@@ -95,6 +95,25 @@ pnpm --filter @vrf/web typecheck
 pnpm --filter @vrf/web build
 ```
 
+### Parser do relatório
+
+Os testes do parser não precisam de banco nem de rede:
+
+```bash
+cd apps/worker && pytest tests/test_parser_sitfis.py -q
+```
+
+As fixtures ficam em `tests/fixtures/sitfis/` como `.txt` — de propósito: revisar
+um diff de texto é possível, revisar um diff de PDF não é. O parser aceita PDF e
+texto puro pelo mesmo caminho.
+
+Para reler um relatório já coletado com o parser melhorado, sem gastar chamada na
+SERPRO:
+
+```bash
+curl -X POST .../internal/consultas/<consulta_id>/reprocessar   # via painel/worker
+```
+
 ### Integração painel → worker
 
 O teste que prova a interoperabilidade do HMAC entre Node e Python precisa do
@@ -128,7 +147,7 @@ c = gerar_pfx(); open('/tmp/teste.pfx','wb').write(c.pfx); print('senha:', c.sen
 |---|---|
 | 0 — Fundação (schema, RLS, auth, mock, CI) | ✅ |
 | 1 — Cadastros + certificado digital cifrado | ✅ |
-| 2 — Integra Contador (mTLS, AutenticaProcurador, SITFIS, parser) | ⬜ |
+| 2 — Integra Contador (mTLS, AutenticaProcurador, SITFIS, parser) | ✅ |
 | 3 — Organização dos débitos | ⬜ |
 | 4 — Régua D+ e envio pelo Evolution | ⬜ |
 | 5 — Bot de resposta | ⬜ |

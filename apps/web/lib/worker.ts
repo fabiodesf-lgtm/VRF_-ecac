@@ -8,6 +8,11 @@ import { createHash, createHmac } from "node:crypto";
  * lado. Assinar o corpo, e não só a rota, impede que uma requisição capturada
  * seja reaproveitada com outro payload.
  *
+ * O caminho assinado inclui a query string. Deixá-la de fora permitiria
+ * acrescentar parâmetros a uma requisição já assinada — trocar
+ * `/sincronizar` por `/sincronizar?forcar=true` furaria a cota diária de
+ * consultas, e cada consulta ao Integra Contador é cobrada.
+ *
  * `INTERNAL_API_SECRET` nunca tem o prefixo NEXT_PUBLIC_: se vazasse para o
  * bundle do browser, qualquer visitante poderia falar com o worker.
  */
@@ -68,6 +73,7 @@ async function chamar<T>(
   contentType: string,
 ): Promise<T> {
   const timestamp = (Date.now() / 1000).toString();
+  // `caminho` já vem com a query string quando houver; ele é assinado inteiro.
   const assinatura = assinar(metodo, caminho, corpo, timestamp);
 
   const inicio = Date.now();
@@ -161,6 +167,51 @@ export async function enviarCertificado(params: {
 /** Remove do nome do arquivo o que quebraria o cabeçalho do multipart. */
 function sanitizarNome(nome: string): string {
   return nome.replace(/[\r\n"\\]/g, "_").slice(0, 120) || "certificado.pfx";
+}
+
+export type ResultadoSincronizacao = {
+  ok: boolean;
+  status: "concluido" | "aguardando" | "erro" | "expirado" | "pulado";
+  mensagem: string;
+  consulta_id: string;
+  protocolo: string | null;
+  debitos_novos: number;
+  debitos_atualizados: number;
+  debitos_resolvidos: number;
+  baixa_confianca: number;
+  secoes_desconhecidas: string[];
+};
+
+/**
+ * Dispara a consulta da situação fiscal de uma empresa no e-CAC.
+ *
+ * `forcar` ignora a cota diária de consultas. A cota existe porque cada chamada
+ * ao Integra Contador é cobrada, então forçar é decisão consciente de quem
+ * opera — e vai na query string, que é assinada junto com a rota.
+ */
+export async function sincronizarEmpresa(
+  empresaId: string,
+  opcoes: { forcar?: boolean } = {},
+): Promise<ResultadoSincronizacao> {
+  const query = opcoes.forcar ? "?forcar=true" : "";
+  return chamar(
+    "POST",
+    `/internal/empresas/${empresaId}/sincronizar${query}`,
+    Buffer.alloc(0),
+    "application/json",
+  );
+}
+
+/** Relê um relatório já guardado, sem gastar chamada na SERPRO. */
+export async function reprocessarConsulta(
+  consultaId: string,
+): Promise<Omit<ResultadoSincronizacao, "status" | "consulta_id" | "protocolo">> {
+  return chamar(
+    "POST",
+    `/internal/consultas/${consultaId}/reprocessar`,
+    Buffer.alloc(0),
+    "application/json",
+  );
 }
 
 export type SaudeWorker = {

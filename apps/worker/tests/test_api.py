@@ -16,7 +16,7 @@ from app.config import get_settings
 from app.main import app
 from app.security.crypto import gerar_chave_hex
 from app.security.interno import assinar
-from tests.conftest import CPF_PROCURADOR, CertificadoTeste, gerar_pfx
+from tests.conftest import CPF_PROCURADOR, CertificadoTeste, cnpj_aleatorio, gerar_pfx
 
 SEGREDO = "a" * 64
 DATABASE_URL = os.getenv("TEST_DATABASE_URL", "")
@@ -213,3 +213,143 @@ def test_senha_vazia_e_rejeitada(
 ) -> None:
     resp = _enviar(cliente, procurador_id, certificado_valido, senha="")
     assert resp.status_code == 422
+
+
+# ───────────────────────────────────────────────────────────────────────────
+# Sincronização (Fase 2)
+# ───────────────────────────────────────────────────────────────────────────
+
+
+def _assinar_post(cliente: TestClient, caminho: str, corpo: bytes = b""):
+    """Assina e envia um POST. `caminho` pode incluir a query string.
+
+    A assinatura cobre a query string; montá-la aqui pelo mesmo helper do
+    servidor é o que garante que os dois lados não divirjam.
+    """
+    ts = str(time.time())
+    sig = assinar(SEGREDO, "POST", caminho, corpo, ts)
+    requisicao = cliente.build_request(
+        "POST",
+        caminho,
+        content=corpo,
+        headers={"x-vrf-timestamp": ts, "x-vrf-signature": sig},
+    )
+    return cliente.send(requisicao)
+
+
+@pytest.fixture
+def empresa_com_certificado(
+    cliente: TestClient, procurador_id: str, certificado_valido: CertificadoTeste
+) -> str:
+    """Envia o certificado e cria a empresa vinculada, pela própria API/banco."""
+    import asyncio
+
+    resp = _enviar(cliente, procurador_id, certificado_valido)
+    assert resp.status_code == 201, resp.text
+
+    async def criar() -> str:
+        motor = create_async_engine(DATABASE_URL)
+        try:
+            async with motor.begin() as conexao:
+                return str(
+                    (
+                        await conexao.execute(
+                            text(
+                                """
+                                insert into public.empresas
+                                    (cnpj, razao_social, whatsapp, procurador_id)
+                                values (:c, 'PADARIA DO ZE LTDA',
+                                        '5511987654321', cast(:p as uuid))
+                                returning id::text
+                                """
+                            ),
+                            {"c": cnpj_aleatorio(), "p": procurador_id},
+                        )
+                    ).scalar_one()
+                )
+        finally:
+            await motor.dispose()
+
+    return asyncio.run(criar())
+
+
+def test_sincroniza_empresa_pela_api(cliente: TestClient, empresa_com_certificado: str) -> None:
+    resp = _assinar_post(cliente, f"/internal/empresas/{empresa_com_certificado}/sincronizar")
+    assert resp.status_code == 200, resp.text
+    corpo = resp.json()
+    assert corpo["ok"] is True
+    assert corpo["status"] == "concluido"
+    assert corpo["debitos_novos"] > 0
+    assert corpo["protocolo"]
+
+
+def test_sincronizacao_respeita_a_cota_diaria(
+    cliente: TestClient, empresa_com_certificado: str
+) -> None:
+    caminho = f"/internal/empresas/{empresa_com_certificado}/sincronizar"
+    assert _assinar_post(cliente, caminho).json()["status"] == "concluido"
+
+    segunda = _assinar_post(cliente, caminho).json()
+    assert segunda["status"] == "pulado"
+    assert "cota" in segunda["mensagem"].lower()
+
+
+def test_sincronizacao_forcada_ignora_a_cota(
+    cliente: TestClient, empresa_com_certificado: str
+) -> None:
+    caminho = f"/internal/empresas/{empresa_com_certificado}/sincronizar"
+    _assinar_post(cliente, caminho)
+    forcada = _assinar_post(cliente, f"{caminho}?forcar=true")
+    assert forcada.json()["status"] == "concluido"
+
+
+def test_sincronizar_sem_assinatura_e_rejeitado(
+    cliente: TestClient, empresa_com_certificado: str
+) -> None:
+    resp = cliente.post(f"/internal/empresas/{empresa_com_certificado}/sincronizar")
+    assert resp.status_code == 401
+
+
+def test_sincronizar_empresa_sem_procurador_devolve_422(cliente: TestClient) -> None:
+    import asyncio
+
+    async def criar() -> str:
+        motor = create_async_engine(DATABASE_URL)
+        try:
+            async with motor.begin() as conexao:
+                return str(
+                    (
+                        await conexao.execute(
+                            text(
+                                "insert into public.empresas (cnpj, razao_social, whatsapp) "
+                                "values (:c, 'SEM PROCURADOR LTDA', "
+                                "'5511912345678') returning id::text"
+                            ),
+                            {"c": cnpj_aleatorio()},
+                        )
+                    ).scalar_one()
+                )
+        finally:
+            await motor.dispose()
+
+    empresa_id = asyncio.run(criar())
+    resp = _assinar_post(cliente, f"/internal/empresas/{empresa_id}/sincronizar")
+    assert resp.status_code == 422
+    assert "procurador" in resp.json()["detail"]
+
+
+def test_reprocessa_consulta_pela_api(cliente: TestClient, empresa_com_certificado: str) -> None:
+    primeira = _assinar_post(
+        cliente, f"/internal/empresas/{empresa_com_certificado}/sincronizar"
+    ).json()
+
+    resp = _assinar_post(cliente, f"/internal/consultas/{primeira['consulta_id']}/reprocessar")
+    assert resp.status_code == 200, resp.text
+    corpo = resp.json()
+    assert corpo["ok"] is True
+    assert corpo["debitos_novos"] == 0
+
+
+def test_reprocessar_consulta_inexistente_devolve_404(cliente: TestClient) -> None:
+    resp = _assinar_post(cliente, f"/internal/consultas/{uuid.uuid4()}/reprocessar")
+    assert resp.status_code == 404

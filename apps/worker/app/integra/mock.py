@@ -13,6 +13,7 @@ gastar chamada cobrada — e sem esperar a contratação da API.
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import time
 from dataclasses import dataclass, field
@@ -124,6 +125,29 @@ class MockProvider:
         if not caminho.exists():
             raise IntegraError(f"fixture ausente: {caminho}")
         return RelatorioSitfis(pronto=True, pdf=caminho.read_bytes(), status_http=200)
+
+    async def obter_relatorio_sitfis(
+        self, *, contribuinte_cnpj: str, token: TokenProcurador, tentativas: int = 3
+    ) -> tuple[Protocolo, RelatorioSitfis]:
+        """Fluxo completo, espelhando o do cliente real."""
+        protocolo = await self.solicitar_protocolo_sitfis(
+            contribuinte_cnpj=contribuinte_cnpj, token=token
+        )
+        espera = protocolo.tempo_espera_ms / 1000
+
+        for _ in range(tentativas):
+            if espera > 0:
+                await asyncio.sleep(espera)
+            resultado = await self.emitir_relatorio_sitfis(
+                contribuinte_cnpj=contribuinte_cnpj, protocolo=protocolo, token=token
+            )
+            if resultado.pronto or resultado.status_http == 204:
+                return protocolo, resultado
+            espera = max(espera * 2, 0.05)
+
+        return protocolo, RelatorioSitfis(
+            pronto=False, status_http=202, mensagem="não ficou pronto nas tentativas"
+        )
 
     async def gerar_darf(
         self,

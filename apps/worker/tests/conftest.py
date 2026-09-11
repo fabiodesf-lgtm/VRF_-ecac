@@ -22,6 +22,36 @@ CPF_PROCURADOR = "52998224725"
 CNPJ_EMPRESA = "11222333000181"
 
 
+def cnpj_com_dv(base: str) -> str:
+    """Completa uma base de 12 dígitos com os dois dígitos verificadores.
+
+    Existe para os testes poderem usar um CNPJ diferente cada um: reaproveitar o
+    mesmo CNPJ entre testes cria colisão no índice único de `empresas`, o que
+    aparece como falha intermitente e sem relação com o que o teste checa.
+    """
+    digitos = [int(c) for c in base[:12].zfill(12)]
+
+    def dv(ate: int) -> int:
+        peso = ate - 7
+        soma = 0
+        for i in range(ate):
+            soma += digitos[i] * peso
+            peso = 9 if peso == 2 else peso - 1
+        resto = 11 - (soma % 11)
+        return 0 if resto >= 10 else resto
+
+    digitos.append(dv(12))
+    digitos.append(dv(13))
+    return "".join(str(d) for d in digitos)
+
+
+def cnpj_aleatorio() -> str:
+    """CNPJ válido e único, para isolar cada teste."""
+    import secrets
+
+    return cnpj_com_dv(f"{secrets.randbelow(10**12):012d}")
+
+
 @dataclass(frozen=True)
 class CertificadoTeste:
     pfx: bytes
