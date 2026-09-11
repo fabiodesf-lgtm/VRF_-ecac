@@ -1,0 +1,42 @@
+# Dependências
+node_modules/
+.pnp/
+.pnp.js
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Build
+.next/
+out/
+dist/
+build/
+*.egg-info/
+
+# Ambiente e segredos
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# NUNCA versionar certificados digitais
+*.pfx
+*.p12
+certificados/
+
+# Supabase local
+supabase/.branches/
+supabase/.temp/
+
+# Testes e cache
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+coverage/
+.coverage
+
+# Sistema
+.DS_Store
+*.log
