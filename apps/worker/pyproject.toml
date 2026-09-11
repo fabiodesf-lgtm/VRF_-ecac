@@ -1,0 +1,59 @@
+[project]
+name = "vrf-ecac-worker"
+version = "0.1.0"
+description = "Worker de integrações, jobs e bot do sistema de débitos e-CAC"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.32",
+    "pydantic>=2.9",
+    "pydantic-settings>=2.6",
+    "sqlalchemy[asyncio]>=2.0.36",
+    "asyncpg>=0.30",
+    "httpx>=0.28",
+    "cryptography>=44.0",
+    "pdfplumber>=0.11",
+    "python-multipart>=0.0.20",
+    "apscheduler>=3.11",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3",
+    "pytest-asyncio>=0.24",
+    "ruff>=0.8",
+    "mypy>=1.13",
+    "respx>=0.22",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "UP", "B", "S", "C4", "SIM", "RUF"]
+ignore = [
+    "S101",  # assert é esperado nos testes
+    # N818 exige sufixo "Error" nas exceções. É convenção de nomes em inglês e
+    # briga com o naming em português do projeto ("CertificadoInvalidoError"
+    # não é nome, é ruído). O domínio aqui é fiscal brasileiro e os nomes
+    # acompanham.
+    "N818",
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["S105", "S106"]  # senhas de teste hardcoded
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+warn_return_any = true
+plugins = []
+
+[[tool.mypy.overrides]]
+module = ["pdfplumber.*", "apscheduler.*"]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]

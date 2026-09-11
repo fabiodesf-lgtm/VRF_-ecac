@@ -40,3 +40,6 @@ coverage/
 # Sistema
 .DS_Store
 *.log
+
+# Worker
+.data/

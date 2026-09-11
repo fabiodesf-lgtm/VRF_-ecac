@@ -1,0 +1,35 @@
+RELATÓRIO DE SITUAÇÃO FISCAL
+Secretaria Especial da Receita Federal do Brasil
+Procuradoria-Geral da Fazenda Nacional
+
+CNPJ: 11.222.333/0001-81
+NOME EMPRESARIAL: PADARIA DO ZE LTDA
+DATA/HORA DA EMISSÃO: 11/09/2026 09:14:22
+
+DIAGNÓSTICO FISCAL NA RECEITA FEDERAL
+
+Pendência - Débito (SIEF)
+Receita          PA               Vencimento    Vl.Original      Saldo Devedor   Situação
+2089-01          08/2026          20/08/2026        4.320,00          4.320,00   DEVEDOR
+1410-01          07/2026          25/07/2026        1.180,50          1.180,50   DEVEDOR
+0220-01          06/2026          20/06/2026       12.900,00         12.900,00   DEVEDOR
+
+Pendência - Débito com exigibilidade suspensa (SIEF)
+Receita          PA               Vencimento    Vl.Original      Saldo Devedor   Situação
+2172-01          05/2026          20/05/2026        8.000,00          8.000,00   SUSPENSO POR DECISAO JUDICIAL
+
+Pendência - Parcelamento
+Modalidade                          Parcelas       Situação
+PARCELAMENTO ORDINARIO - LEI 10.522/02    18/60    EM DIA
+
+Pendência - Inscrição em Dívida Ativa da União
+Inscrição                Ajuizada   Vl.Original      Saldo Devedor   Situação
+80 6 26 001234-56        NAO            3.500,00          5.120,44   DEVEDOR
+
+Omissão de DCTF
+PA               Situação
+04/2026          OMISSO
+
+Não constam outras pendências.
+
+FIM DO RELATÓRIO
