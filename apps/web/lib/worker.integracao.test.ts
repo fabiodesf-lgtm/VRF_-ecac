@@ -154,3 +154,47 @@ descreve("sincronização com o e-CAC", () => {
     await expect(sincronizarEmpresa(semProcurador)).rejects.toMatchObject({ status: 422 });
   });
 });
+
+/**
+ * Download dos arquivos guardados, ponta a ponta.
+ *
+ * Mesma razão do bloco acima, para o caminho binário: `chamarGetBinario` assina
+ * em Node e o worker verifica em Python, e aqui o corpo da resposta não é JSON —
+ * é o PDF, que tem de chegar byte a byte igual ao que está no armazenamento.
+ *
+ * Exige o worker no ar e:
+ *   WORKER_E2E_ARQUIVOS=1
+ *   WORKER_BASE_URL, INTERNAL_API_SECRET
+ *   E2E_CONSULTA_ID   — consulta SITFIS com pdf_storage_path preenchido
+ *   E2E_CONSULTA_SHA  — sha256 do arquivo guardado, em hex
+ */
+const descreveArquivos =
+  process.env.WORKER_E2E_ARQUIVOS === "1" ? describe : describe.skip;
+
+descreveArquivos("download dos arquivos do worker", () => {
+  it("entrega o relatório guardado com os bytes intactos", async () => {
+    const { baixarRelatorioConsulta } = await import("./worker");
+    const { createHash } = await import("node:crypto");
+
+    const arquivo = await baixarRelatorioConsulta(process.env.E2E_CONSULTA_ID ?? "");
+
+    expect(arquivo.contentType).toContain("application/pdf");
+    expect(arquivo.nomeArquivo).toMatch(/\.pdf$/);
+    const sha = createHash("sha256").update(Buffer.from(arquivo.bytes)).digest("hex");
+    expect(sha).toBe(process.env.E2E_CONSULTA_SHA);
+  });
+
+  it("devolve 404 para consulta que não existe", async () => {
+    const { baixarRelatorioConsulta } = await import("./worker");
+    await expect(
+      baixarRelatorioConsulta("00000000-0000-0000-0000-000000000000"),
+    ).rejects.toMatchObject({ status: 404 });
+  });
+
+  it("devolve 404 para DARF sem documento emitido", async () => {
+    const { baixarPdfDarf } = await import("./worker");
+    await expect(
+      baixarPdfDarf("00000000-0000-0000-0000-000000000000"),
+    ).rejects.toBeInstanceOf(WorkerError);
+  });
+});

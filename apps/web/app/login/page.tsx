@@ -18,7 +18,8 @@ export default async function LoginPage({
         </div>
         <FormularioLogin proximo={proximo} />
         <p className="mt-6 text-center text-xs text-tinta-fraca">
-          Acesso restrito à equipe do escritório.
+          Acesso restrito à equipe do escritório. Se o seu acesso foi liberado agora, entre com
+          a senha que o administrador cadastrou.
         </p>
       </div>
     </main>

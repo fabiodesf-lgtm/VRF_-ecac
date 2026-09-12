@@ -1,8 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
-
-import { Aviso } from "@/components/ui";
+import { BotaoAcao } from "@/components/ui";
 import { reprocessarRelatorio } from "../atendimento/acoes";
 
 /**
@@ -19,34 +17,16 @@ export function BotaoReprocessar({
   consultaId: string;
   empresaId: string;
 }) {
-  const [pendente, iniciar] = useTransition();
-  const [resultado, setResultado] = useState<
-    { ok: true; mensagem?: string } | { ok: false; erro: string } | null
-  >(null);
-
   return (
-    <div className="mt-1 space-y-1">
-      <button
-        type="button"
-        disabled={pendente}
-        onClick={() =>
-          iniciar(async () => {
-            setResultado(await reprocessarRelatorio(consultaId, empresaId));
-          })
-        }
-        className="text-xs text-marca underline disabled:opacity-50"
-        title="Relê o relatório guardado com o parser atual. Não consulta a SERPRO."
-      >
-        {pendente ? "reprocessando…" : "reprocessar (grátis)"}
-      </button>
-
-      {resultado && (
-        <Aviso tom={resultado.ok ? "sucesso" : "alerta"}>
-          <span className="text-xs">
-            {resultado.ok ? (resultado.mensagem ?? "Relatório relido.") : resultado.erro}
-          </span>
-        </Aviso>
-      )}
-    </div>
+    <BotaoAcao
+      acao={() => reprocessarRelatorio(consultaId, empresaId)}
+      variante="sutil"
+      tamanho="pequeno"
+      rotuloPendente="reprocessando…"
+      title="Relê o relatório guardado com o parser atual. Não consulta a SERPRO."
+      className="px-0 text-xs text-marca underline hover:bg-transparent hover:text-marca-forte"
+    >
+      reprocessar (grátis)
+    </BotaoAcao>
   );
 }

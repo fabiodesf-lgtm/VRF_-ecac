@@ -1,20 +1,11 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 
+import { Menu } from "@/components/navegacao/menu";
+import { MenuMovel } from "@/components/navegacao/drawer";
+import { contadoresDoMenu } from "@/lib/contadores";
 import { usuarioAtual } from "@/lib/supabase/server";
 import { BotaoSair } from "./sair";
-
-const NAV = [
-  { href: "/", rotulo: "Início" },
-  { href: "/empresas", rotulo: "Empresas" },
-  { href: "/procuradores", rotulo: "Procuradores" },
-  { href: "/debitos", rotulo: "Débitos" },
-  { href: "/regua", rotulo: "Régua" },
-  { href: "/darfs", rotulo: "DARFs" },
-  { href: "/atendimento", rotulo: "Atendimento" },
-  { href: "/operacao", rotulo: "Operação" },
-  { href: "/lgpd", rotulo: "LGPD" },
-];
 
 export default async function PainelLayout({ children }: { children: React.ReactNode }) {
   const atual = await usuarioAtual();
@@ -39,34 +30,48 @@ export default async function PainelLayout({ children }: { children: React.React
     );
   }
 
+  const contadores = await contadoresDoMenu();
+  const identificacao = atual.perfil.nome || atual.perfil.email;
+  const ehAdmin = atual.perfil.papel === "admin";
+
   return (
-    <div className="min-h-screen">
-      <header className="border-b border-linha bg-papel">
-        <div className="mx-auto flex max-w-6xl flex-wrap items-center gap-x-6 gap-y-3 px-4 py-3">
-          <Link href="/" className="text-sm font-semibold text-tinta">
+    <div className="min-h-screen lg:grid lg:grid-cols-[16rem_minmax(0,1fr)]">
+      {/* Barra lateral fixa: em tela larga acompanha o scroll do conteúdo. */}
+      <aside className="hidden border-r border-linha bg-papel lg:flex lg:h-screen lg:flex-col lg:sticky lg:top-0">
+        <div className="border-b border-linha px-4 py-4">
+          <Link href="/" className="block text-sm font-semibold text-tinta">
             VRF e-CAC
           </Link>
-          <nav className="flex flex-wrap items-center gap-1">
-            {NAV.map((item) => (
-              <Link
-                key={item.href}
-                href={item.href}
-                className="rounded-md px-2.5 py-1.5 text-sm text-tinta-fraca transition hover:bg-fundo hover:text-tinta"
-              >
-                {item.rotulo}
-              </Link>
-            ))}
-          </nav>
-          <div className="ml-auto flex items-center gap-3">
-            <span className="hidden text-xs text-tinta-fraca sm:inline">
-              {atual.perfil.nome || atual.perfil.email}
-              {atual.perfil.papel === "admin" && " · admin"}
-            </span>
+          <p className="mt-0.5 text-xs text-tinta-fraca">Gestão de débitos</p>
+        </div>
+        <div className="min-h-0 flex-1 overflow-y-auto p-3">
+          <Menu contadores={contadores} />
+        </div>
+        <div className="border-t border-linha px-4 py-3">
+          <p className="truncate text-xs text-tinta-fraca" title={identificacao}>
+            {identificacao}
+            {ehAdmin && " · admin"}
+          </p>
+          <div className="mt-2">
             <BotaoSair />
           </div>
         </div>
-      </header>
-      <main className="mx-auto max-w-6xl px-4 py-6">{children}</main>
+      </aside>
+
+      <div className="flex min-w-0 flex-col">
+        {/* Cabeçalho só para o celular: em tela larga tudo já está na lateral. */}
+        <header className="flex items-center gap-3 border-b border-linha bg-papel px-4 py-3 lg:hidden">
+          <MenuMovel contadores={contadores} />
+          <Link href="/" className="text-sm font-semibold text-tinta">
+            VRF e-CAC
+          </Link>
+          <div className="ml-auto">
+            <BotaoSair />
+          </div>
+        </header>
+
+        <main className="mx-auto w-full max-w-6xl px-4 py-6">{children}</main>
+      </div>
     </div>
   );
 }

@@ -176,6 +176,10 @@ Recém-instalado o sistema **não emite nada sozinho**: teto zero e lista de
 receitas vazia. Para exercitar a emissão automática em desenvolvimento, é preciso
 tomar as duas decisões que o escritório tomaria:
 
+Pelo painel, como o escritório faria: **DARFs → Conferir um código** libera a
+receita, e **Configurações → DARF** sobe o teto. As duas ações são de admin e
+ficam na auditoria. Direto no banco, para semear um ambiente de teste:
+
 ```sql
 insert into public.receitas_darf (codigo, descricao, ativo, conferencia)
 values ('2089', 'Descrição conferida', true, 'conferido por fulano em DD/MM');

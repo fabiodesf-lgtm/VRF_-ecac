@@ -29,7 +29,7 @@ export function FormularioReceita() {
 
   if (!aberto) {
     return (
-      <Botao variante="secundario" onClick={() => setAberto(true)} className="px-2 py-1 text-xs">
+      <Botao variante="secundario" onClick={() => setAberto(true)} tamanho="pequeno">
         Conferir um código
       </Botao>
     );
@@ -111,7 +111,7 @@ export function FormularioReceita() {
       </label>
 
       <div className="flex items-center gap-2">
-        <Botao type="submit" disabled={pendente} className="px-3 py-1.5 text-xs">
+        <Botao type="submit" disabled={pendente} tamanho="pequeno">
           {pendente ? "salvando…" : "Salvar"}
         </Botao>
         <Botao
@@ -119,7 +119,7 @@ export function FormularioReceita() {
           variante="secundario"
           disabled={pendente}
           onClick={() => setAberto(false)}
-          className="px-3 py-1.5 text-xs"
+          tamanho="pequeno"
         >
           Cancelar
         </Botao>

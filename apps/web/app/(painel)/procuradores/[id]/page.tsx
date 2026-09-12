@@ -1,11 +1,29 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
-import { Aviso, Card, Etiqueta, Tabela, Td, Th, Vazio } from "@/components/ui";
+import {
+  Alternador,
+  Aviso,
+  Cabecalho,
+  Card,
+  Descricao,
+  Etiqueta,
+  Item,
+  Tabela,
+  Td,
+  Th,
+  Vazio,
+} from "@/components/ui";
 import { ALERTA_VENCIMENTO_DIAS, situacaoCertificado } from "@/lib/certificado";
 import { criarClienteServidor } from "@/lib/supabase/server";
 import { formatarCnpj, formatarData, formatarDocumento } from "@/lib/validacao";
-import { subirCertificado } from "../acoes";
+import {
+  alterarStatusProcurador,
+  atualizarProcurador,
+  marcarProcuracao,
+  subirCertificado,
+} from "../acoes";
+import { FormularioProcurador } from "../formulario";
 import { UploadCertificado } from "../upload";
 
 export const dynamic = "force-dynamic";
@@ -46,19 +64,36 @@ export default async function DetalheProcurador({
 
   return (
     <div className="space-y-5">
-      <div>
-        <Link href="/procuradores" className="text-sm text-tinta-fraca underline">
-          ← Procuradores
-        </Link>
-        <div className="mt-2 flex flex-wrap items-center gap-3">
-          <h1 className="text-lg font-semibold text-tinta">{procurador.nome}</h1>
-          <Etiqueta tom={situacao.tom}>{situacao.texto}</Etiqueta>
-        </div>
-        <p className="mt-1 text-sm tabular text-tinta-fraca">
-          {formatarDocumento(procurador.cpf_cnpj)} ·{" "}
-          {procurador.tipo === "ecpf" ? "eCPF" : "eCNPJ"}
-        </p>
-      </div>
+      <Cabecalho
+        voltar={{ href: "/procuradores", rotulo: "Procuradores" }}
+        titulo={procurador.nome}
+        descricao={
+          <span className="tabular">
+            {formatarDocumento(procurador.cpf_cnpj)} ·{" "}
+            {procurador.tipo === "ecpf" ? "eCPF" : "eCNPJ"}
+          </span>
+        }
+        etiquetas={
+          <>
+            <Etiqueta tom={situacao.tom}>{situacao.texto}</Etiqueta>
+            <Alternador
+              ligado={procurador.status === "ativo"}
+              acao={alterarStatusProcurador.bind(null, procurador.id)}
+              rotuloLigado="ativo"
+              rotuloDesligado="inativo"
+              confirmacaoParaDesligar={{
+                titulo: "Inativar este procurador?",
+                descricao: (
+                  <p>
+                    <strong>{procurador.nome}</strong> sai da lista de escolha no cadastro de
+                    empresa. As empresas já vinculadas continuam vinculadas.
+                  </p>
+                ),
+              }}
+            />
+          </>
+        }
+      />
 
       {situacao.dias !== null && situacao.dias < 0 && (
         <Aviso tom="alerta">
@@ -87,7 +122,7 @@ export default async function DetalheProcurador({
               Envie o certificado A1 ao lado para habilitar as consultas ao e-CAC.
             </Vazio>
           ) : (
-            <dl className="space-y-2 text-sm">
+            <Descricao>
               <Item rotulo="Titular">{ativo.subject_cn}</Item>
               <Item rotulo="Emissor">{ativo.issuer_cn}</Item>
               <Item rotulo="Documento no certificado">
@@ -101,12 +136,15 @@ export default async function DetalheProcurador({
                   {ativo.fingerprint_sha256.slice(0, 32)}…
                 </code>
               </Item>
-            </dl>
+            </Descricao>
           )}
         </Card>
       </div>
 
-      <Card titulo={`Empresas vinculadas (${vinculadas.length})`}>
+      <Card
+        titulo={`Empresas vinculadas (${vinculadas.length})`}
+        descricao="A procuração é confirmada aqui depois de alguém conferir no e-CAC que ela existe e está vigente."
+      >
         {vinculadas.length === 0 ? (
           <Vazio titulo="Nenhuma empresa vinculada">
             Vincule empresas a este procurador no cadastro de cada uma.
@@ -142,11 +180,22 @@ export default async function DetalheProcurador({
                     </Td>
                     <Td className="tabular">{formatarCnpj(e.cnpj)}</Td>
                     <Td>
-                      {e.procuracao_ecac_ok ? (
-                        <Etiqueta tom="sucesso">confirmada</Etiqueta>
-                      ) : (
-                        <Etiqueta tom="atencao">pendente</Etiqueta>
-                      )}
+                      <Alternador
+                        ligado={e.procuracao_ecac_ok}
+                        acao={marcarProcuracao.bind(null, e.id)}
+                        rotuloLigado="confirmada"
+                        rotuloDesligado="pendente"
+                        title="Registre aqui depois de conferir a procuração no e-CAC"
+                        confirmacaoParaDesligar={{
+                          titulo: "Marcar a procuração como pendente?",
+                          descricao: (
+                            <p>
+                              As consultas ao e-CAC de <strong>{e.razao_social}</strong> vão
+                              falhar até a procuração ser confirmada de novo.
+                            </p>
+                          ),
+                        }}
+                      />
                     </Td>
                   </tr>
                 ))}
@@ -188,15 +237,21 @@ export default async function DetalheProcurador({
           </Tabela>
         </Card>
       )}
-    </div>
-  );
-}
 
-function Item({ rotulo, children }: { rotulo: string; children: React.ReactNode }) {
-  return (
-    <div className="flex items-start justify-between gap-3">
-      <dt className="shrink-0 text-tinta-fraca">{rotulo}</dt>
-      <dd className="text-right text-tinta">{children}</dd>
+      <div>
+        <h2 className="mb-3 text-sm font-semibold text-tinta">Editar cadastro</h2>
+        <FormularioProcurador
+          acao={atualizarProcurador.bind(null, procurador.id)}
+          rotuloEnvio="Salvar alterações"
+          irParaDetalhe={false}
+          valoresIniciais={{
+            nome: procurador.nome,
+            cpf_cnpj: procurador.cpf_cnpj,
+            tipo: procurador.tipo,
+            observacao: procurador.observacao ?? "",
+          }}
+        />
+      </div>
     </div>
   );
 }

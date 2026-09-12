@@ -1,46 +1,93 @@
 import Link from "next/link";
 
-import { Aviso, Card, Etiqueta, Tabela, Td, Th, Vazio } from "@/components/ui";
-import { FAIXAS, type FaixaAtraso, proximoAviso } from "@/lib/faixas";
+import {
+  Busca,
+  Cabecalho,
+  Card,
+  Etiqueta,
+  Filtro,
+  Indicador,
+  LimparFiltros,
+  Paginacao,
+  Tabela,
+  Td,
+  Th,
+  Vazio,
+} from "@/components/ui";
+import { FAIXAS, FAIXAS_ORDENADAS, type FaixaAtraso, proximoAviso } from "@/lib/faixas";
+import { termoParaBusca } from "@/lib/consulta";
 import { criarClienteServidor } from "@/lib/supabase/server";
-import { formatarCnpj, formatarData, formatarMoeda } from "@/lib/validacao";
-import { Filtros } from "./filtros";
+import { formatarCnpj, formatarData, formatarMoeda, soDigitos } from "@/lib/validacao";
 
 export const dynamic = "force-dynamic";
 
-const LIMITE = 300;
+const POR_PAGINA = 100;
+const CAMPOS_FILTRO = ["q", "faixa", "cobravel", "empresa", "ordem"];
 
-type Busca = {
+type Filtros = {
+  q?: string;
   faixa?: string;
   cobravel?: string;
   empresa?: string;
   ordem?: string;
+  pagina?: string;
 };
+
+/**
+ * Aplica os filtros da tela a uma consulta da visão `debitos_abertos`.
+ *
+ * Genérico porque roda duas vezes sobre a mesma visão: uma para a página de
+ * linhas, outra para os totais do conjunto filtrado. Os totais têm de refletir o
+ * filtro inteiro, não só a página visível — "R$ 80 mil em aberto" que na verdade
+ * é o subtotal das cem primeiras linhas seria pior que número nenhum.
+ */
+type Filtravel<T> = {
+  eq(coluna: string, valor: unknown): T;
+  or(filtros: string): T;
+};
+
+function aplicarFiltros<T extends Filtravel<T>>(consulta: T, filtros: Filtros): T {
+  let atual = consulta;
+
+  const termo = termoParaBusca(filtros.q);
+  if (termo) {
+    const digitos = soDigitos(termo);
+    const alternativas = [`razao_social.ilike.%${termo}%`, `descricao.ilike.%${termo}%`];
+    if (digitos.length >= 3) alternativas.push(`cnpj.ilike.%${digitos}%`);
+    atual = atual.or(alternativas.join(","));
+  }
+  if (filtros.faixa && filtros.faixa in FAIXAS) {
+    atual = atual.eq("faixa_atraso", filtros.faixa as FaixaAtraso);
+  }
+  if (filtros.cobravel === "sim") atual = atual.eq("cobravel", true);
+  if (filtros.cobravel === "nao") atual = atual.eq("cobravel", false);
+  if (filtros.empresa) atual = atual.eq("empresa_id", filtros.empresa);
+
+  return atual;
+}
 
 export default async function Debitos({
   searchParams,
 }: {
-  searchParams: Promise<Busca>;
+  searchParams: Promise<Filtros>;
 }) {
   const filtros = await searchParams;
+  const pagina = Math.max(1, Number(filtros.pagina ?? 1) || 1);
   const supabase = await criarClienteServidor();
-
-  let consulta = supabase.from("debitos_abertos").select("*");
-
-  if (filtros.faixa && filtros.faixa in FAIXAS) {
-    consulta = consulta.eq("faixa_atraso", filtros.faixa as FaixaAtraso);
-  }
-  if (filtros.cobravel === "sim") consulta = consulta.eq("cobravel", true);
-  if (filtros.cobravel === "nao") consulta = consulta.eq("cobravel", false);
-  if (filtros.empresa) consulta = consulta.eq("empresa_id", filtros.empresa);
 
   // O padrão é do mais atrasado para o menos: é a ordem em que o escritório
   // precisa agir, não a ordem cronológica.
   const ordem = filtros.ordem === "valor" ? "saldo_devedor" : "dias_atraso";
-  consulta = consulta.order(ordem, { ascending: false, nullsFirst: false }).limit(LIMITE);
+  const inicio = (pagina - 1) * POR_PAGINA;
 
-  const [{ data, error }, { data: empresas }] = await Promise.all([
-    consulta,
+  const [{ data, count, error }, { data: paraTotais }, { data: empresas }] = await Promise.all([
+    aplicarFiltros(supabase.from("debitos_abertos").select("*", { count: "exact" }), filtros)
+      .order(ordem, { ascending: false, nullsFirst: false })
+      .range(inicio, inicio + POR_PAGINA - 1),
+    aplicarFiltros(
+      supabase.from("debitos_abertos").select("saldo_devedor, cobravel"),
+      filtros,
+    ),
     supabase
       .from("empresas_resumo")
       .select("empresa_id, razao_social, qtd_debitos")
@@ -49,43 +96,78 @@ export default async function Debitos({
   ]);
 
   const debitos = data ?? [];
-  const total = debitos.reduce((s, d) => s + Number(d.saldo_devedor ?? 0), 0);
-  const totalCobravel = debitos
+  const todos = paraTotais ?? [];
+  const total = todos.reduce((s, d) => s + Number(d.saldo_devedor ?? 0), 0);
+  const totalCobravel = todos
     .filter((d) => d.cobravel)
     .reduce((s, d) => s + Number(d.saldo_devedor ?? 0), 0);
-  const qtdConferir = debitos.filter((d) => !d.cobravel).length;
+  const qtdConferir = todos.filter((d) => !d.cobravel).length;
 
-  const temFiltro = Boolean(filtros.faixa || filtros.cobravel || filtros.empresa);
+  const temFiltro = CAMPOS_FILTRO.some((c) => filtros[c as keyof Filtros]);
 
   return (
     <div className="space-y-5">
-      <div>
-        <h1 className="text-lg font-semibold text-tinta">Débitos</h1>
-        <p className="mt-1 text-sm text-tinta-fraca">
-          Débitos em aberto de todos os clientes, do mais atrasado para o menos.
-        </p>
-      </div>
-
-      <Filtros
-        empresas={(empresas ?? []).map((e) => ({
-          id: e.empresa_id ?? "",
-          nome: e.razao_social ?? "",
-          qtd: Number(e.qtd_debitos ?? 0),
-        }))}
-        atual={filtros}
+      <Cabecalho
+        titulo="Débitos"
+        descricao="Débitos em aberto de todos os clientes, do mais atrasado para o menos."
       />
 
+      <Card>
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+          <Busca rotulo="Buscar" placeholder="empresa, CNPJ ou descrição" />
+          <Filtro
+            campo="faixa"
+            rotulo="Faixa de atraso"
+            rotuloVazio="todas"
+            opcoes={FAIXAS_ORDENADAS.map((f) => ({ valor: f, rotulo: FAIXAS[f].rotulo }))}
+          />
+          <Filtro
+            campo="cobravel"
+            rotulo="Cobrança"
+            opcoes={[
+              { valor: "sim", rotulo: "entra na régua" },
+              { valor: "nao", rotulo: "precisa de conferência" },
+            ]}
+          />
+          <Filtro
+            campo="empresa"
+            rotulo="Empresa"
+            rotuloVazio="todas"
+            opcoes={(empresas ?? [])
+              .filter((e): e is typeof e & { empresa_id: string } => Boolean(e.empresa_id))
+              .map((e) => ({
+                valor: e.empresa_id,
+                rotulo: `${e.razao_social} (${e.qtd_debitos})`,
+              }))}
+          />
+          <Filtro
+            campo="ordem"
+            rotulo="Ordenar por"
+            rotuloVazio="maior atraso"
+            opcoes={[{ valor: "valor", rotulo: "maior valor" }]}
+          />
+        </div>
+        <div className="mt-3">
+          <LimparFiltros campos={CAMPOS_FILTRO} />
+        </div>
+      </Card>
+
       <div className="grid gap-4 sm:grid-cols-3">
-        <Resumo rotulo="Total listado" valor={formatarMoeda(total)} />
-        <Resumo
+        <Indicador
+          rotulo={temFiltro ? "Total filtrado" : "Total em aberto"}
+          valor={formatarMoeda(total)}
+          detalhe={`${todos.length} débito(s)`}
+        />
+        <Indicador
           rotulo="Cobrável"
           valor={formatarMoeda(totalCobravel)}
           detalhe="entra na régua automática"
         />
-        <Resumo
+        <Indicador
           rotulo="A conferir"
           valor={String(qtdConferir)}
           detalhe={qtdConferir > 0 ? "fora da cobrança automática" : "nenhum"}
+          tom={qtdConferir > 0 ? "destaque" : "neutro"}
         />
       </div>
 
@@ -168,36 +250,10 @@ export default async function Debitos({
               </tbody>
             </Tabela>
 
-            {debitos.length >= LIMITE && (
-              <div className="mt-3">
-                <Aviso tom="info">
-                  Mostrando os {LIMITE} primeiros. Use os filtros para estreitar a lista.
-                </Aviso>
-              </div>
-            )}
+            <Paginacao pagina={pagina} tamanho={POR_PAGINA} total={count ?? debitos.length} />
           </>
         )}
       </Card>
-    </div>
-  );
-}
-
-function Resumo({
-  rotulo,
-  valor,
-  detalhe,
-}: {
-  rotulo: string;
-  valor: string;
-  detalhe?: string;
-}) {
-  return (
-    <div className="rounded-lg border border-linha bg-papel px-4 py-3">
-      <div className="text-xs font-medium uppercase tracking-wide text-tinta-fraca">
-        {rotulo}
-      </div>
-      <div className="mt-1 text-lg font-semibold tabular text-tinta">{valor}</div>
-      {detalhe && <div className="mt-0.5 text-xs text-tinta-fraca">{detalhe}</div>}
     </div>
   );
 }

@@ -1,10 +1,17 @@
 import Link from "next/link";
 
-import { Aviso, Card, Etiqueta, Vazio } from "@/components/ui";
+import {
+  Aviso,
+  BotaoAcao,
+  Cabecalho,
+  Card,
+  Etiqueta,
+  Indicador,
+  Vazio,
+} from "@/components/ui";
 import { criarClienteServidor } from "@/lib/supabase/server";
 import { formatarData, formatarWhatsapp } from "@/lib/validacao";
-import { RetomarBot } from "./conversa";
-import { AcoesTarefa } from "./tarefa";
+import { assumirTarefa, resolverTarefa, retomarBot } from "./acoes";
 
 export const dynamic = "force-dynamic";
 
@@ -77,14 +84,29 @@ export default async function Atendimento({
   });
 
   const abertas = pendencias.filter((t) => t.status !== "resolvida");
+  const urgentes = abertas.filter((t) => URGENTES.has(t.tipo));
 
   return (
     <div className="space-y-5">
-      <div>
-        <h1 className="text-lg font-semibold text-tinta">Atendimento</h1>
-        <p className="mt-1 text-sm text-tinta-fraca">
-          Clientes aguardando atendimento humano e pendências internas.
-        </p>
+      <Cabecalho
+        titulo="Atendimento"
+        descricao="Clientes aguardando atendimento humano e pendências internas."
+      />
+
+      <div className="grid gap-4 sm:grid-cols-3">
+        <Indicador
+          rotulo="Na fila humana"
+          valor={String(fila.length)}
+          detalhe={fila.length > 0 ? "cobrança automática pausada" : "ninguém esperando"}
+          tom={fila.length > 0 ? "destaque" : "neutro"}
+        />
+        <Indicador rotulo="Pendências abertas" valor={String(abertas.length)} />
+        <Indicador
+          rotulo="Travando a coleta"
+          valor={String(urgentes.length)}
+          detalhe={urgentes.length > 0 ? "certificado ou consulta com erro" : "nada travado"}
+          tom={urgentes.length > 0 ? "destaque" : "neutro"}
+        />
       </div>
 
       <Card titulo={`Aguardando atendimento (${fila.length})`}>
@@ -100,7 +122,7 @@ export default async function Atendimento({
               const ultima = ultimas.get(c.whatsapp);
               const razao = c.empresas?.razao_social ?? "número não cadastrado";
               return (
-                <li key={c.id} className="flex items-start gap-3 py-3 first:pt-0 last:pb-0">
+                <li key={c.id} className="flex flex-wrap items-start gap-3 py-3 first:pt-0 last:pb-0">
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2">
                       {c.empresas?.id ? (
@@ -120,7 +142,7 @@ export default async function Atendimento({
                       )}
                     </div>
                     {ultima?.corpo && (
-                      <p className="mt-1 line-clamp-3 text-sm text-tinta">“{ultima.corpo}”</p>
+                      <p className="truncar-3 mt-1 text-sm text-tinta">“{ultima.corpo}”</p>
                     )}
                     <p className="mt-1 text-xs text-tinta-fraca">
                       <span className="tabular">{formatarWhatsapp(c.whatsapp)}</span>
@@ -146,7 +168,26 @@ export default async function Atendimento({
                     </p>
                   </div>
                   <div className="shrink-0">
-                    <RetomarBot conversaId={c.id} razaoSocial={razao} />
+                    {/* Pede confirmação, diferente de "Resolver" numa tarefa:
+                        retomar o bot religa a cobrança automática daquele cliente,
+                        e fazer isso no meio de um atendimento significa o robô
+                        falando por cima de uma pessoa. */}
+                    <BotaoAcao
+                      acao={retomarBot.bind(null, c.id)}
+                      tamanho="pequeno"
+                      confirmacao={{
+                        titulo: "Retomar o bot deste cliente?",
+                        descricao: (
+                          <p>
+                            A cobrança automática de <strong>{razao}</strong> volta a valer, e a
+                            próxima mensagem dele será tratada pelo bot.
+                          </p>
+                        ),
+                        rotuloConfirmar: "Retomar",
+                      }}
+                    >
+                      Retomar bot
+                    </BotaoAcao>
                   </div>
                 </li>
               );
@@ -174,7 +215,7 @@ export default async function Atendimento({
         ) : (
           <ul className="divide-y divide-linha">
             {pendencias.map((t) => (
-              <li key={t.id} className="flex items-start gap-3 py-3 first:pt-0 last:pb-0">
+              <li key={t.id} className="flex flex-wrap items-start gap-3 py-3 first:pt-0 last:pb-0">
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
                     <Etiqueta tom={URGENTES.has(t.tipo) ? "alerta" : "atencao"}>
@@ -210,7 +251,23 @@ export default async function Atendimento({
                   </p>
                 </div>
                 {t.status !== "resolvida" && (
-                  <AcoesTarefa tarefaId={t.id} status={t.status} />
+                  <div className="flex shrink-0 gap-1.5">
+                    {t.status === "aberta" && (
+                      <BotaoAcao acao={assumirTarefa.bind(null, t.id)} tamanho="pequeno">
+                        Assumir
+                      </BotaoAcao>
+                    )}
+                    {/* Resolver não pede confirmação: a tarefa continua no
+                        histórico e pode ser reaberta, então o custo de um clique
+                        errado é menor que o atrito de um diálogo por linha. */}
+                    <BotaoAcao
+                      acao={resolverTarefa.bind(null, t.id)}
+                      tamanho="pequeno"
+                      mensagemSucesso="Tarefa resolvida."
+                    >
+                      Resolver
+                    </BotaoAcao>
+                  </div>
                 )}
               </li>
             ))}

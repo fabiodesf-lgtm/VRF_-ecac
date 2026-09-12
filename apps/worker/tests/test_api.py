@@ -612,3 +612,106 @@ def test_estado_do_whatsapp(cliente: TestClient) -> None:
     corpo = resp.json()
     assert corpo["modo"] == "mock"
     assert corpo["conectada"] is True
+
+
+# ───────────────────────────────────────────────────────────────────────────
+# Download do relatório do e-CAC e do PDF do DARF
+#
+# O painel não alcança o Storage, então estas rotas são o único caminho até os
+# arquivos guardados. O que elas precisam garantir: exigem assinatura como
+# qualquer rota interna, e o caminho do arquivo vem do banco — nunca do pedido.
+# ───────────────────────────────────────────────────────────────────────────
+
+
+def _get_assinado(cliente: TestClient, caminho: str, *, assinar_de_verdade: bool = True):
+    ts = str(time.time())
+    sig = assinar(SEGREDO, "GET", caminho, b"", ts) if assinar_de_verdade else "invalida"
+    return cliente.send(
+        cliente.build_request(
+            "GET",
+            caminho,
+            headers={"x-vrf-timestamp": ts, "x-vrf-signature": sig},
+        )
+    )
+
+
+@pytest.fixture
+def consulta_com_relatorio(tmp_path: Path) -> tuple[str, bytes]:
+    """Uma consulta SITFIS com um PDF de verdade no armazenamento local."""
+    import asyncio
+
+    conteudo = b"%PDF-1.4 relatorio de teste"
+    caminho_relativo = f"sitfis/{uuid.uuid4()}.pdf"
+    arquivo = tmp_path / "storage" / caminho_relativo
+    arquivo.parent.mkdir(parents=True, exist_ok=True)
+    arquivo.write_bytes(conteudo)
+
+    async def criar() -> str:
+        motor = create_async_engine(DATABASE_URL)
+        try:
+            async with motor.begin() as conexao:
+                empresa_id = (
+                    await conexao.execute(
+                        text(
+                            "insert into public.empresas (cnpj, razao_social, whatsapp) "
+                            "values (:cnpj, 'EMPRESA DO PDF LTDA', '5511987654321') "
+                            "returning id::text"
+                        ),
+                        {"cnpj": cnpj_aleatorio()},
+                    )
+                ).scalar_one()
+                consulta_id = (
+                    await conexao.execute(
+                        text(
+                            "insert into public.sitfis_consultas "
+                            "(empresa_id, status, pdf_storage_path) "
+                            "values (:e, 'concluido', :p) returning id::text"
+                        ),
+                        {"e": empresa_id, "p": caminho_relativo},
+                    )
+                ).scalar_one()
+            return str(consulta_id)
+        finally:
+            await motor.dispose()
+
+    return asyncio.run(criar()), conteudo
+
+
+def test_relatorio_exige_assinatura(cliente: TestClient) -> None:
+    """Sem HMAC a rota não responde nada: é documento fiscal de cliente."""
+    resp = _get_assinado(
+        cliente,
+        f"/internal/consultas/{uuid.uuid4()}/relatorio",
+        assinar_de_verdade=False,
+    )
+    assert resp.status_code == 401
+
+
+def test_relatorio_entrega_o_pdf(
+    cliente: TestClient, consulta_com_relatorio: tuple[str, bytes]
+) -> None:
+    consulta_id, conteudo = consulta_com_relatorio
+    resp = _get_assinado(cliente, f"/internal/consultas/{consulta_id}/relatorio")
+
+    assert resp.status_code == 200
+    assert resp.content == conteudo
+    assert resp.headers["content-type"] == "application/pdf"
+    assert "attachment" in resp.headers["content-disposition"]
+    # Documento fiscal não fica em cache de intermediário.
+    assert resp.headers["cache-control"] == "private, no-store"
+
+
+def test_relatorio_de_consulta_inexistente_e_404(cliente: TestClient) -> None:
+    resp = _get_assinado(cliente, f"/internal/consultas/{uuid.uuid4()}/relatorio")
+    assert resp.status_code == 404
+
+
+def test_id_fora_do_formato_e_404_e_nao_500(cliente: TestClient) -> None:
+    """Um id qualquer na URL é "não existe", não "o worker quebrou"."""
+    resp = _get_assinado(cliente, "/internal/consultas/nao-e-uuid/relatorio")
+    assert resp.status_code == 404
+
+
+def test_pdf_de_darf_inexistente_e_404(cliente: TestClient) -> None:
+    resp = _get_assinado(cliente, f"/internal/darfs/{uuid.uuid4()}/pdf")
+    assert resp.status_code == 404

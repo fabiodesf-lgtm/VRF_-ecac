@@ -2,7 +2,17 @@
 
 import { useState, useTransition } from "react";
 
-import { Aviso, Botao, Campo, Entrada, Selecao } from "@/components/ui";
+import {
+  AreaTexto,
+  Aviso,
+  Botao,
+  Campo,
+  Dialogo,
+  Entrada,
+  RodapeDialogo,
+  Selecao,
+  useAvisos,
+} from "@/components/ui";
 import {
   anonimizar,
   atenderSolicitacao,
@@ -19,22 +29,19 @@ const TIPOS: [string, string][] = [
   ["revogacao_consentimento", "Revogação de consentimento"],
 ];
 
+type Empresa = { id: string; nome: string };
+
 /** Registro de um pedido de titular, com prazo. */
-export function NovaSolicitacao({ empresas }: { empresas: { id: string; nome: string }[] }) {
+export function NovaSolicitacao({ empresas }: { empresas: Empresa[] }) {
   const [pendente, iniciar] = useTransition();
   const [aberto, setAberto] = useState(false);
-  const [erro, setErro] = useState<string | null>(null);
-  const [campos, setCampos] = useState({
-    tipo: "acesso",
-    solicitante: "",
-    empresaId: "",
-    canal: "",
-    detalhe: "",
-  });
+  const avisos = useAvisos();
+  const vazio = { tipo: "acesso", solicitante: "", empresaId: "", canal: "", detalhe: "" };
+  const [campos, setCampos] = useState(vazio);
 
   if (!aberto) {
     return (
-      <Botao onClick={() => setAberto(true)} className="px-3 py-1.5 text-xs">
+      <Botao tamanho="pequeno" onClick={() => setAberto(true)}>
         Registrar pedido
       </Botao>
     );
@@ -47,11 +54,11 @@ export function NovaSolicitacao({ empresas }: { empresas: { id: string; nome: st
         e.preventDefault();
         iniciar(async () => {
           const r = await registrarSolicitacao(campos);
-          if (!r.ok) setErro(r.erro);
+          if (!r.ok) avisos.falha(r.erro);
           else {
-            setErro(null);
+            avisos.sucesso(r.mensagem ?? "Pedido registrado.");
             setAberto(false);
-            setCampos({ tipo: "acesso", solicitante: "", empresaId: "", canal: "", detalhe: "" });
+            setCampos(vazio);
           }
         });
       }}
@@ -73,6 +80,7 @@ export function NovaSolicitacao({ empresas }: { empresas: { id: string; nome: st
           <Entrada
             value={campos.solicitante}
             onChange={(e) => setCampos({ ...campos, solicitante: e.target.value })}
+            required
           />
         </Campo>
         <Campo label="Empresa" dica="Se o pedido é de um cliente cadastrado">
@@ -96,24 +104,24 @@ export function NovaSolicitacao({ empresas }: { empresas: { id: string; nome: st
         </Campo>
       </div>
       <Campo label="O que exatamente foi pedido">
-        <Entrada
+        <AreaTexto
+          rows={2}
           value={campos.detalhe}
           onChange={(e) => setCampos({ ...campos, detalhe: e.target.value })}
         />
       </Campo>
       <div className="flex items-center gap-2">
-        <Botao type="submit" disabled={pendente} className="px-3 py-1.5 text-xs">
+        <Botao type="submit" tamanho="pequeno" disabled={pendente}>
           {pendente ? "salvando…" : "Registrar"}
         </Botao>
         <Botao
           type="button"
           variante="secundario"
+          tamanho="pequeno"
           onClick={() => setAberto(false)}
-          className="px-3 py-1.5 text-xs"
         >
           Cancelar
         </Botao>
-        {erro && <span className="text-xs text-alerta">{erro}</span>}
       </div>
     </form>
   );
@@ -124,56 +132,61 @@ export function AtenderSolicitacao({ solicitacaoId }: { solicitacaoId: string })
   const [pendente, iniciar] = useTransition();
   const [aberto, setAberto] = useState(false);
   const [resposta, setResposta] = useState("");
-  const [erro, setErro] = useState<string | null>(null);
-
-  if (!aberto) {
-    return (
-      <Botao variante="secundario" onClick={() => setAberto(true)} className="px-2 py-1 text-xs">
-        Responder
-      </Botao>
-    );
-  }
+  const avisos = useAvisos();
 
   const enviar = (recusar: boolean) =>
     iniciar(async () => {
       const r = await atenderSolicitacao(solicitacaoId, resposta, recusar);
-      if (!r.ok) setErro(r.erro);
+      if (!r.ok) avisos.falha(r.erro);
       else {
-        setErro(null);
+        avisos.sucesso(r.mensagem ?? "Pedido fechado.");
         setAberto(false);
         setResposta("");
       }
     });
 
+  if (!aberto) {
+    return (
+      <Botao variante="secundario" tamanho="pequeno" onClick={() => setAberto(true)}>
+        Responder
+      </Botao>
+    );
+  }
+
   return (
     <div className="flex w-full flex-col gap-1.5 sm:w-80">
-      <Entrada
-        value={resposta}
-        onChange={(e) => setResposta(e.target.value)}
-        placeholder="O que foi respondido ao titular"
-        className="py-1 text-xs"
-      />
+      <Campo label="O que foi respondido ao titular" obrigatorio>
+        <AreaTexto
+          rows={3}
+          value={resposta}
+          onChange={(e) => setResposta(e.target.value)}
+          placeholder="É a prova de que o pedido foi atendido no prazo"
+        />
+      </Campo>
       <div className="flex flex-wrap gap-1.5">
-        <Botao disabled={pendente} onClick={() => enviar(false)} className="px-2 py-1 text-xs">
+        <Botao
+          tamanho="pequeno"
+          disabled={pendente || !resposta.trim()}
+          onClick={() => enviar(false)}
+        >
           {pendente ? "…" : "Atendido"}
         </Botao>
         <Botao
           variante="secundario"
-          disabled={pendente}
+          tamanho="pequeno"
+          disabled={pendente || !resposta.trim()}
           onClick={() => enviar(true)}
-          className="px-2 py-1 text-xs"
         >
-          Recusar
+          Recusar com justificativa
         </Botao>
         <Botao
           variante="secundario"
+          tamanho="pequeno"
           onClick={() => setAberto(false)}
-          className="px-2 py-1 text-xs"
         >
           Cancelar
         </Botao>
       </div>
-      {erro && <span className="text-xs text-alerta">{erro}</span>}
     </div>
   );
 }
@@ -185,10 +198,10 @@ export function AtenderSolicitacao({ solicitacaoId }: { solicitacaoId: string })
  * servidor: um pacote com a situação fiscal inteira de um cliente não deve ficar
  * esquecido num diretório.
  */
-export function ExportarDados({ empresas }: { empresas: { id: string; nome: string }[] }) {
+export function ExportarDados({ empresas }: { empresas: Empresa[] }) {
   const [pendente, iniciar] = useTransition();
   const [empresaId, setEmpresaId] = useState("");
-  const [erro, setErro] = useState<string | null>(null);
+  const avisos = useAvisos();
 
   return (
     <div className="flex flex-wrap items-end gap-2">
@@ -210,23 +223,21 @@ export function ExportarDados({ empresas }: { empresas: { id: string; nome: stri
           iniciar(async () => {
             const r = await exportarDados(empresaId);
             if (!r.ok) {
-              setErro(r.erro);
+              avisos.falha(r.erro);
               return;
             }
-            setErro(null);
             const url = URL.createObjectURL(new Blob([r.json], { type: "application/json" }));
             const link = document.createElement("a");
             link.href = url;
             link.download = r.nome;
             link.click();
             URL.revokeObjectURL(url);
+            avisos.sucesso(`Arquivo ${r.nome} gerado.`);
           })
         }
-        className="px-3 py-2 text-xs"
       >
         {pendente ? "montando…" : "Baixar JSON"}
       </Botao>
-      {erro && <span className="text-xs text-alerta">{erro}</span>}
     </div>
   );
 }
@@ -236,14 +247,15 @@ export function Anonimizar({
   empresas,
   ehAdmin,
 }: {
-  empresas: { id: string; nome: string }[];
+  empresas: Empresa[];
   ehAdmin: boolean;
 }) {
   const [pendente, iniciar] = useTransition();
   const [empresaId, setEmpresaId] = useState("");
   const [motivo, setMotivo] = useState("");
   const [confirmacao, setConfirmacao] = useState("");
-  const [resposta, setResposta] = useState<{ ok: boolean; texto: string } | null>(null);
+  const [dialogo, setDialogo] = useState(false);
+  const avisos = useAvisos();
 
   if (!ehAdmin) {
     return (
@@ -295,31 +307,46 @@ export function Anonimizar({
         </Campo>
       )}
 
-      <div className="flex items-center gap-2">
-        <Botao
-          variante="perigo"
-          disabled={pendente || !confirmado || !motivo.trim()}
-          onClick={() =>
-            iniciar(async () => {
-              const r = await anonimizar(empresaId, motivo);
-              setResposta({ ok: r.ok, texto: r.ok ? (r.mensagem ?? "Feito.") : r.erro });
-              if (r.ok) {
-                setEmpresaId("");
-                setMotivo("");
-                setConfirmacao("");
-              }
-            })
-          }
-          className="px-3 py-2 text-xs"
-        >
-          {pendente ? "anonimizando…" : "Anonimizar"}
-        </Botao>
-        {resposta && (
-          <span className={`text-xs ${resposta.ok ? "text-marca" : "text-alerta"}`}>
-            {resposta.texto}
-          </span>
-        )}
-      </div>
+      <Botao
+        variante="perigo"
+        disabled={pendente || !confirmado || !motivo.trim()}
+        onClick={() => setDialogo(true)}
+      >
+        Anonimizar
+      </Botao>
+
+      <Dialogo
+        aberto={dialogo}
+        titulo="Anonimizar este cliente?"
+        aoFechar={() => !pendente && setDialogo(false)}
+        rodape={
+          <RodapeDialogo
+            aoCancelar={() => setDialogo(false)}
+            aoConfirmar={() =>
+              iniciar(async () => {
+                const r = await anonimizar(empresaId, motivo);
+                if (r.ok) {
+                  avisos.sucesso(r.mensagem ?? "Cliente anonimizado.");
+                  setEmpresaId("");
+                  setMotivo("");
+                  setConfirmacao("");
+                  setDialogo(false);
+                } else {
+                  avisos.falha(r.erro);
+                }
+              })
+            }
+            rotuloConfirmar="Anonimizar — não tem volta"
+            variante="perigo"
+            pendente={pendente}
+          />
+        }
+      >
+        <p>
+          Os dados de contato de <strong>{escolhida?.nome}</strong> e o conteúdo das conversas
+          serão apagados, sem possibilidade de recuperação. O registro fiscal permanece.
+        </p>
+      </Dialogo>
     </div>
   );
 }
@@ -327,66 +354,69 @@ export function Anonimizar({
 /** Simulação e execução do expurgo por retenção. */
 export function Retencao({ ehAdmin }: { ehAdmin: boolean }) {
   const [pendente, iniciar] = useTransition();
-  const [resposta, setResposta] = useState<{ ok: boolean; texto: string } | null>(null);
-  const [confirmando, setConfirmando] = useState(false);
+  const [resumo, setResumo] = useState<string | null>(null);
+  const [dialogo, setDialogo] = useState(false);
+  const avisos = useAvisos();
+
+  function executar(simular: boolean) {
+    iniciar(async () => {
+      const r = await rodarRetencao(simular);
+      if (r.ok) {
+        setResumo(r.mensagem ?? null);
+        if (!simular) avisos.sucesso(r.mensagem ?? "Expurgo executado.");
+        setDialogo(false);
+      } else {
+        avisos.falha(r.erro);
+      }
+    });
+  }
 
   return (
     <div className="space-y-2">
       <div className="flex flex-wrap items-center gap-2">
         <Botao
           variante="secundario"
+          tamanho="pequeno"
           disabled={pendente}
-          onClick={() =>
-            iniciar(async () => {
-              const r = await rodarRetencao(true);
-              setResposta({ ok: r.ok, texto: r.ok ? (r.mensagem ?? "") : r.erro });
-            })
-          }
-          className="px-3 py-1.5 text-xs"
+          onClick={() => executar(true)}
         >
           {pendente ? "…" : "Simular expurgo"}
         </Botao>
 
-        {ehAdmin &&
-          (confirmando ? (
-            <>
-              <Botao
-                variante="perigo"
-                disabled={pendente}
-                onClick={() =>
-                  iniciar(async () => {
-                    const r = await rodarRetencao(false);
-                    setResposta({ ok: r.ok, texto: r.ok ? (r.mensagem ?? "") : r.erro });
-                    setConfirmando(false);
-                  })
-                }
-                className="px-3 py-1.5 text-xs"
-              >
-                Confirmar — não tem volta
-              </Botao>
-              <Botao
-                variante="secundario"
-                onClick={() => setConfirmando(false)}
-                className="px-3 py-1.5 text-xs"
-              >
-                Cancelar
-              </Botao>
-            </>
-          ) : (
-            <Botao
-              variante="secundario"
-              onClick={() => setConfirmando(true)}
-              className="px-3 py-1.5 text-xs"
-            >
-              Executar expurgo
-            </Botao>
-          ))}
+        {ehAdmin && (
+          <Botao
+            variante="perigo"
+            tamanho="pequeno"
+            disabled={pendente}
+            onClick={() => setDialogo(true)}
+          >
+            Executar expurgo
+          </Botao>
+        )}
       </div>
-      {resposta && (
-        <p className={`text-xs ${resposta.ok ? "text-tinta-fraca" : "text-alerta"}`}>
-          {resposta.texto}
+
+      {resumo && <p className="text-xs text-tinta-fraca">{resumo}</p>}
+
+      <Dialogo
+        aberto={dialogo}
+        titulo="Executar o expurgo agora?"
+        aoFechar={() => !pendente && setDialogo(false)}
+        rodape={
+          <RodapeDialogo
+            aoCancelar={() => setDialogo(false)}
+            aoConfirmar={() => executar(false)}
+            rotuloConfirmar="Executar — não tem volta"
+            variante="perigo"
+            pendente={pendente}
+          />
+        }
+      >
+        <p>
+          O conteúdo que passou dos prazos é apagado de forma irreversível: corpo das mensagens
+          e PDFs guardados. O registro de que existiram é preservado. Simule antes, se ainda não
+          simulou.
         </p>
-      )}
+      </Dialogo>
     </div>
   );
 }

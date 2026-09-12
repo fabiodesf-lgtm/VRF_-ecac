@@ -1,4 +1,6 @@
 import type { Metadata } from "next";
+
+import { ProvedorAvisos } from "@/components/ui";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -10,7 +12,11 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="pt-BR">
-      <body>{children}</body>
+      <body>
+        {/* A região de avisos mora na raiz para valer também no login, onde não
+            há a casca do painel. */}
+        <ProvedorAvisos>{children}</ProvedorAvisos>
+      </body>
     </html>
   );
 }

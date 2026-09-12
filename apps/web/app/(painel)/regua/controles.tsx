@@ -1,16 +1,16 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import Link from "next/link";
 
-import { Aviso, Botao } from "@/components/ui";
+import { Aviso, BotaoAcao } from "@/components/ui";
 import { enviarAgora, ligarKillSwitch, recalcularRegua } from "./acoes";
-import type { Resultado } from "./acoes";
 
 /**
  * Controles da régua.
  *
  * O kill switch pede confirmação ao **desligar**, não ao ligar: ligar é sempre
  * seguro (para tudo), desligar é o que volta a mandar mensagem para clientes.
+ * Recalcular não pede nada — não envia.
  */
 export function Controles({
   killSwitchLigado,
@@ -23,13 +23,6 @@ export function Controles({
   janelaAberta: boolean;
   motivoJanela: string | null;
 }) {
-  const [pendente, iniciar] = useTransition();
-  const [resultado, setResultado] = useState<Resultado | null>(null);
-
-  function executar(acao: () => Promise<Resultado>) {
-    iniciar(async () => setResultado(await acao()));
-  }
-
   return (
     <div className="space-y-4">
       {killSwitchLigado ? (
@@ -40,77 +33,77 @@ export function Controles({
       ) : !janelaAberta ? (
         <Aviso tom="atencao">
           Fora da janela de envio ({motivoJanela}). Os avisos ficam pendentes e saem quando a
-          janela abrir.
+          janela abrir.{" "}
+          <Link href="/configuracoes?aba=envio" className="font-medium underline">
+            ajustar a janela
+          </Link>
         </Aviso>
       ) : (
         <Aviso tom="sucesso">Janela de envio aberta.</Aviso>
       )}
 
-      {resultado && (
-        <Aviso tom={resultado.ok ? "sucesso" : "alerta"}>
-          {resultado.ok ? resultado.mensagem : resultado.erro}
-        </Aviso>
-      )}
-
       <div className="flex flex-wrap gap-2">
-        <Botao
-          variante="secundario"
-          disabled={pendente || killSwitchLigado}
-          onClick={() => executar(recalcularRegua)}
+        <BotaoAcao
+          acao={recalcularRegua}
+          disabled={killSwitchLigado}
           title="Recalcula os avisos do dia. Não envia nada."
         >
-          {pendente ? "…" : "Recalcular avisos"}
-        </Botao>
+          Recalcular avisos
+        </BotaoAcao>
 
-        <Botao
-          disabled={pendente || killSwitchLigado}
-          onClick={() => executar(() => enviarAgora(false))}
+        <BotaoAcao
+          acao={() => enviarAgora(false)}
+          variante="primario"
+          disabled={killSwitchLigado}
           title="Envia os avisos liberados, respeitando a janela."
+          rotuloPendente="enviando…"
         >
-          {pendente ? "…" : "Enviar agora"}
-        </Botao>
+          Enviar agora
+        </BotaoAcao>
 
         {!janelaAberta && !killSwitchLigado && (
-          <Botao
-            variante="secundario"
-            disabled={pendente}
-            onClick={() => {
-              if (
-                confirm(
-                  "Enviar fora da janela de horário? Cobrança fora do horário comercial " +
-                    "aumenta o risco de restrição da conta do WhatsApp.",
-                )
-              ) {
-                executar(() => enviarAgora(true));
-              }
+          <BotaoAcao
+            acao={() => enviarAgora(true)}
+            rotuloPendente="enviando…"
+            confirmacao={{
+              titulo: "Enviar fora da janela de horário?",
+              descricao: (
+                <p>
+                  Cobrança fora do horário comercial aumenta o risco de restrição da conta do
+                  WhatsApp. O kill switch e as demais travas continuam valendo.
+                </p>
+              ),
+              rotuloConfirmar: "Enviar mesmo assim",
+              variante: "perigo",
             }}
           >
             Enviar ignorando a janela
-          </Botao>
+          </BotaoAcao>
         )}
 
         {ehAdmin && (
-          <Botao
-            variante={killSwitchLigado ? "primario" : "perigo"}
-            disabled={pendente}
-            onClick={() => {
-              // Confirmação ao DESLIGAR: ligar é sempre seguro, desligar volta a
-              // mandar mensagem para clientes.
-              if (
-                killSwitchLigado &&
-                !confirm(
-                  "Desligar o kill switch? Os envios automáticos voltam a acontecer " +
-                    "dentro da janela.",
-                )
-              ) {
-                return;
+          <div className="ml-auto">
+            <BotaoAcao
+              acao={() => ligarKillSwitch(!killSwitchLigado)}
+              variante={killSwitchLigado ? "primario" : "perigo"}
+              confirmacao={
+                killSwitchLigado
+                  ? {
+                      titulo: "Desligar o kill switch?",
+                      descricao: (
+                        <p>
+                          Os envios automáticos voltam a acontecer dentro da janela, para todos
+                          os clientes com avisos ativos.
+                        </p>
+                      ),
+                      rotuloConfirmar: "Desligar",
+                    }
+                  : undefined
               }
-              executar(() => ligarKillSwitch(!killSwitchLigado));
-            }}
-            className="ml-auto"
-          >
-            {killSwitchLigado ? "Desligar kill switch" : "Parar tudo (kill switch)"}
-          </Botao>
+            >
+              {killSwitchLigado ? "Desligar kill switch" : "Parar tudo (kill switch)"}
+            </BotaoAcao>
+          </div>
         )}
       </div>
 

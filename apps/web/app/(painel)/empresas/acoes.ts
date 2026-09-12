@@ -17,7 +17,7 @@ import { WorkerError, sincronizarEmpresa } from "@/lib/worker";
  */
 
 export type ResultadoAcao =
-  | { ok: true; id?: string }
+  | { ok: true; id?: string; mensagem?: string }
   | { ok: false; erro: string; campos?: Record<string, string> };
 
 const esquemaEmpresa = z.object({
@@ -165,17 +165,77 @@ export async function atualizarEmpresa(
   return { ok: true, id };
 }
 
+/**
+ * Liga e desliga os avisos automáticos de uma empresa.
+ *
+ * Separado do formulário de edição de propósito: pausar a cobrança de um cliente
+ * que ligou pedindo prazo é coisa de um clique, no meio de uma lista, e não se faz
+ * abrindo um formulário de dez campos e salvando tudo de novo.
+ */
 export async function alternarAvisos(id: string, ativar: boolean): Promise<ResultadoAcao> {
   const supabase = await criarClienteServidor();
-  const { error } = await supabase.from("empresas").update({ avisos_ativos: ativar }).eq("id", id);
+  const { data, error } = await supabase
+    .from("empresas")
+    .update({ avisos_ativos: ativar })
+    .eq("id", id)
+    .select("razao_social")
+    .maybeSingle();
   if (error) return { ok: false, erro: mensagemDeErroDoBanco(error.message) };
+  if (!data) return { ok: false, erro: "Empresa não encontrada." };
 
   await registrarAuditoria(ativar ? "empresa.avisos_ativados" : "empresa.avisos_pausados",
     "empresas", id, { avisos_ativos: ativar });
 
   revalidatePath("/empresas");
   revalidatePath(`/empresas/${id}`);
-  return { ok: true, id };
+  revalidatePath("/");
+  return {
+    ok: true,
+    id,
+    mensagem: ativar
+      ? `${data.razao_social} volta a receber avisos automáticos.`
+      : `Avisos de ${data.razao_social} pausados. Os débitos continuam sendo acompanhados.`,
+  };
+}
+
+/**
+ * Ativa ou inativa uma empresa.
+ *
+ * `status` decide se a empresa entra na sincronização diária e nos totais do
+ * dashboard. A coluna existia e era exibida desde o início, sem nenhum caminho na
+ * interface para mudá-la: dar baixa num cliente exigia SQL.
+ *
+ * Inativar não apaga nada — os débitos e o histórico ficam, e a empresa volta
+ * inteira se for reativada.
+ */
+export async function alterarStatusEmpresa(
+  id: string,
+  ativar: boolean,
+): Promise<ResultadoAcao> {
+  const supabase = await criarClienteServidor();
+  const status = ativar ? "ativo" : "inativo";
+  const { data, error } = await supabase
+    .from("empresas")
+    .update({ status })
+    .eq("id", id)
+    .select("razao_social")
+    .maybeSingle();
+  if (error) return { ok: false, erro: mensagemDeErroDoBanco(error.message) };
+  if (!data) return { ok: false, erro: "Empresa não encontrada." };
+
+  await registrarAuditoria("empresa.status_alterado", "empresas", id, { status });
+
+  revalidatePath("/empresas");
+  revalidatePath(`/empresas/${id}`);
+  revalidatePath("/");
+  revalidatePath("/debitos");
+  return {
+    ok: true,
+    id,
+    mensagem: ativar
+      ? `${data.razao_social} reativada.`
+      : `${data.razao_social} inativada. Sai da sincronização diária e dos totais.`,
+  };
 }
 
 async function registrarAuditoria(

@@ -9,6 +9,7 @@
   --color-fundo: #f7f8fa;
   --color-papel: #ffffff;
   --color-marca: #14532d;
+  --color-marca-forte: #0f3d21;
   --color-marca-clara: #dcfce7;
   --color-alerta: #b42318;
   --color-alerta-clara: #fee4e2;
@@ -16,6 +17,13 @@
   --color-atencao-clara: #fef0c7;
   --color-info: #175cd3;
   --color-info-clara: #d1e9ff;
+  --color-foco: #175cd3;
+
+  /* Uma escala de elevação só, nomeada pelo papel que cada nível cumpre: o
+     cartão que assenta no fundo e o que flutua acima da página. Antes a sombra
+     do cartão era um literal repetido dentro do componente. */
+  --shadow-cartao: 0 1px 2px rgba(16, 24, 40, 0.05);
+  --shadow-flutuante: 0 10px 30px -8px rgba(16, 24, 40, 0.22);
 }
 
 html {
@@ -31,7 +39,47 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+/* Foco visível em tudo que recebe teclado, e não só nos campos de texto.
+   Operar o painel inteiro pelo Tab é requisito, não refinamento: quem trabalha
+   numa fila de tarefas o dia inteiro não volta ao mouse a cada linha. */
+:focus-visible {
+  outline: 2px solid var(--color-foco);
+  outline-offset: 2px;
+  border-radius: 0.25rem;
+}
+
 /* Números tabulares alinham colunas de valor e data nas tabelas. */
 .tabular {
   font-variant-numeric: tabular-nums;
+}
+
+/* Corte de texto por número de linhas, usado em mensagem de cliente e detalhe
+   de tarefa — onde o conteúdo vem de fora e não tem tamanho previsível. */
+.truncar-2,
+.truncar-3 {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.truncar-2 {
+  -webkit-line-clamp: 2;
+}
+.truncar-3 {
+  -webkit-line-clamp: 3;
+}
+
+/* O fundo escuro do drawer no celular. */
+dialog::backdrop {
+  background: rgba(16, 24, 40, 0.45);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }

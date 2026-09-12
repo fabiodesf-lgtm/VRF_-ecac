@@ -83,6 +83,7 @@ function BotaoForcar({
       <Botao
         type="submit"
         variante="secundario"
+        tamanho="pequeno"
         disabled={enviando}
         title="Cada consulta ao Integra Contador é cobrada"
       >

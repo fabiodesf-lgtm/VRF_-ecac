@@ -1,11 +1,24 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
-import { Aviso, Card, Etiqueta, Tabela, Td, Th, Vazio } from "@/components/ui";
+import {
+  Alternador,
+  Aviso,
+  Cabecalho,
+  Card,
+  Descricao,
+  Etiqueta,
+  Item,
+  Tabela,
+  Td,
+  Th,
+  Vazio,
+} from "@/components/ui";
 import { criarClienteServidor } from "@/lib/supabase/server";
 import { proximoAviso } from "@/lib/faixas";
 import { formatarCnpj, formatarData, formatarMoeda, formatarWhatsapp } from "@/lib/validacao";
-import { atualizarEmpresa, sincronizarComEcac } from "../acoes";
+import { marcarProcuracao } from "../../procuradores/acoes";
+import { alternarAvisos, alterarStatusEmpresa, atualizarEmpresa, sincronizarComEcac } from "../acoes";
 import { FormularioEmpresa, type OpcaoProcurador } from "../formulario";
 import { BotaoReprocessar } from "../reprocessar";
 import { BotaoSincronizar } from "../sincronizar";
@@ -28,7 +41,7 @@ export default async function DetalheEmpresa({
   ] = await Promise.all([
     supabase
       .from("empresas")
-      .select("id, cnpj, razao_social, nome_fantasia, whatsapp, email, procurador_id, status, avisos_ativos, procuracao_ecac_ok, consentimento_whatsapp_em, observacao, created_at, procuradores(id, nome, cpf_cnpj)")
+      .select("id, cnpj, razao_social, nome_fantasia, whatsapp, email, procurador_id, status, avisos_ativos, procuracao_ecac_ok, consentimento_whatsapp_em, opt_out_em, observacao, created_at, procuradores(id, nome, cpf_cnpj)")
       .eq("id", id)
       .maybeSingle(),
     supabase
@@ -76,26 +89,62 @@ export default async function DetalheEmpresa({
   // A cota real é aplicada no worker; aqui ela só decide o que a interface mostra.
   const cotaDisponivel = consultasHoje === 0;
   const ultima = historico[0];
+  const ativa = empresa.status === "ativo";
 
   return (
     <div className="space-y-5">
-      <div>
-        <Link href="/empresas" className="text-sm text-tinta-fraca underline">
-          ← Empresas
-        </Link>
-        <div className="mt-2 flex flex-wrap items-center gap-3">
-          <h1 className="text-lg font-semibold text-tinta">{empresa.razao_social}</h1>
-          {empresa.avisos_ativos ? (
-            <Etiqueta tom="sucesso">avisos ativos</Etiqueta>
-          ) : (
-            <Etiqueta tom="atencao">avisos pausados</Etiqueta>
-          )}
-        </div>
-        <p className="mt-1 text-sm tabular text-tinta-fraca">
-          {formatarCnpj(empresa.cnpj)} · {formatarWhatsapp(empresa.whatsapp)}
-          {empresa.email && ` · ${empresa.email}`}
-        </p>
-      </div>
+      <Cabecalho
+        voltar={{ href: "/empresas", rotulo: "Empresas" }}
+        titulo={empresa.razao_social}
+        descricao={
+          <span className="tabular">
+            {formatarCnpj(empresa.cnpj)} · {formatarWhatsapp(empresa.whatsapp)}
+            {empresa.email && ` · ${empresa.email}`}
+          </span>
+        }
+        etiquetas={
+          <>
+            {empresa.opt_out_em ? (
+              <Etiqueta tom="neutro">
+                pediu para não receber em {formatarData(empresa.opt_out_em)}
+              </Etiqueta>
+            ) : (
+              <Alternador
+                ligado={empresa.avisos_ativos}
+                acao={alternarAvisos.bind(null, empresa.id)}
+                rotuloLigado="avisos ativos"
+                rotuloDesligado="avisos pausados"
+                confirmacaoParaDesligar={{
+                  titulo: "Pausar os avisos automáticos?",
+                  descricao: (
+                    <p>
+                      <strong>{empresa.razao_social}</strong> para de receber cobrança por
+                      WhatsApp. Os débitos continuam sendo coletados e aparecendo aqui.
+                    </p>
+                  ),
+                }}
+              />
+            )}
+            <Alternador
+              ligado={ativa}
+              acao={alterarStatusEmpresa.bind(null, empresa.id)}
+              rotuloLigado="ativa"
+              rotuloDesligado="inativa"
+              title="Empresa inativa sai da sincronização diária e dos totais do painel"
+              confirmacaoParaDesligar={{
+                titulo: "Inativar esta empresa?",
+                descricao: (
+                  <p>
+                    <strong>{empresa.razao_social}</strong> sai da sincronização diária e
+                    dos totais do painel. Nada é apagado: os débitos e o histórico ficam, e
+                    ela volta inteira se for reativada.
+                  </p>
+                ),
+              }}
+            />
+          </>
+        }
+      />
 
       {!empresa.procurador_id && (
         <Aviso tom="atencao">
@@ -107,7 +156,8 @@ export default async function DetalheEmpresa({
         <Aviso tom="atencao">
           A procuração e-CAC desta empresa para{" "}
           <strong>{empresa.procuradores?.nome}</strong> ainda não foi confirmada. Sem ela, a
-          SERPRO recusa a consulta.
+          SERPRO recusa a consulta — confirme no cartão <strong>Cadastro</strong> depois de
+          conferir no e-CAC.
         </Aviso>
       )}
       {!empresa.consentimento_whatsapp_em && empresa.avisos_ativos && (
@@ -118,7 +168,20 @@ export default async function DetalheEmpresa({
       )}
 
       <div className="grid gap-4 lg:grid-cols-3">
-        <Card titulo="Débitos em aberto" className="lg:col-span-2">
+        <Card
+          titulo="Débitos em aberto"
+          className="lg:col-span-2"
+          acao={
+            emAberto.length > 0 ? (
+              <Link
+                href={`/debitos?empresa=${empresa.id}`}
+                className="text-xs text-marca underline"
+              >
+                ver na tela de débitos
+              </Link>
+            ) : undefined
+          }
+        >
           {emAberto.length === 0 ? (
             <Vazio titulo="Nenhum débito em aberto">
               Os débitos aparecem aqui após a sincronização com o e-CAC.
@@ -198,13 +261,40 @@ export default async function DetalheEmpresa({
         </Card>
 
         <Card titulo="Cadastro">
-          <dl className="space-y-2 text-sm">
-            <Item rotulo="Procurador">{empresa.procuradores?.nome ?? "—"}</Item>
-            <Item rotulo="Procuração e-CAC">
-              {empresa.procuracao_ecac_ok ? (
-                <Etiqueta tom="sucesso">confirmada</Etiqueta>
+          <Descricao>
+            <Item rotulo="Procurador">
+              {empresa.procuradores ? (
+                <Link
+                  href={`/procuradores/${empresa.procuradores.id}`}
+                  className="text-marca underline"
+                >
+                  {empresa.procuradores.nome}
+                </Link>
               ) : (
-                <Etiqueta tom="atencao">pendente</Etiqueta>
+                "—"
+              )}
+            </Item>
+            <Item rotulo="Procuração e-CAC">
+              {empresa.procurador_id ? (
+                <Alternador
+                  ligado={empresa.procuracao_ecac_ok}
+                  acao={marcarProcuracao.bind(null, empresa.id)}
+                  rotuloLigado="confirmada"
+                  rotuloDesligado="pendente"
+                  title="Registre aqui depois de conferir a procuração no e-CAC"
+                  confirmacaoParaDesligar={{
+                    titulo: "Marcar a procuração como pendente?",
+                    descricao: (
+                      <p>
+                        As consultas ao e-CAC de <strong>{empresa.razao_social}</strong> vão
+                        falhar até a procuração ser confirmada de novo. Use isto quando a
+                        procuração vencer ou for revogada.
+                      </p>
+                    ),
+                  }}
+                />
+              ) : (
+                <Etiqueta tom="atencao">sem procurador</Etiqueta>
               )}
             </Item>
             <Item rotulo="Consentimento">
@@ -212,9 +302,21 @@ export default async function DetalheEmpresa({
                 ? formatarData(empresa.consentimento_whatsapp_em)
                 : "não registrado"}
             </Item>
+            {empresa.opt_out_em && (
+              <Item rotulo="Opt-out">{formatarData(empresa.opt_out_em)}</Item>
+            )}
             <Item rotulo="Cadastrada em">{formatarData(empresa.created_at)}</Item>
             {empresa.observacao && <Item rotulo="Observação">{empresa.observacao}</Item>}
-          </dl>
+          </Descricao>
+
+          {empresa.opt_out_em && (
+            <div className="mt-3">
+              <Aviso tom="neutro">
+                O cliente pediu para não receber avisos. Desfazer isso não é ação de painel: é
+                manifestação do titular, e só ele pode revê-la.
+              </Aviso>
+            </div>
+          )}
         </Card>
       </div>
 
@@ -286,7 +388,15 @@ export default async function DetalheEmpresa({
                     </p>
                   )}
                   {c.pdf_storage_path && (
-                    <BotaoReprocessar consultaId={c.id} empresaId={empresa.id} />
+                    <div className="mt-1 flex flex-wrap items-center gap-3">
+                      <a
+                        href={`/api/arquivos/relatorio/${c.id}`}
+                        className="text-xs text-marca underline"
+                      >
+                        baixar o relatório (PDF)
+                      </a>
+                      <BotaoReprocessar consultaId={c.id} empresaId={empresa.id} />
+                    </div>
                   )}
                 </li>
               ))}
@@ -347,13 +457,4 @@ function resumoDaConsulta(resumo: unknown): string | null {
     partes.push(`${r.secoes_desconhecidas.length} seção(ões) não reconhecida(s)`);
   }
   return partes.length > 0 ? partes.join(" · ") : null;
-}
-
-function Item({ rotulo, children }: { rotulo: string; children: React.ReactNode }) {
-  return (
-    <div className="flex items-start justify-between gap-3">
-      <dt className="text-tinta-fraca">{rotulo}</dt>
-      <dd className="text-right text-tinta">{children}</dd>
-    </div>
-  );
 }

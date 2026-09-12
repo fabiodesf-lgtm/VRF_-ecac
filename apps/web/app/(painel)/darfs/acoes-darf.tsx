@@ -2,7 +2,15 @@
 
 import { useState, useTransition } from "react";
 
-import { Botao, Entrada } from "@/components/ui";
+import {
+  AreaTexto,
+  Botao,
+  BotaoAcao,
+  Campo,
+  Dialogo,
+  RodapeDialogo,
+  useAvisos,
+} from "@/components/ui";
 import { aprovar, descartar } from "./acoes";
 
 /**
@@ -14,102 +22,84 @@ import { aprovar, descartar } from "./acoes";
  * virou DARF é o que responde a pergunta dele depois.
  */
 export function AcoesDarf({ darfId, resumo }: { darfId: string; resumo: string }) {
-  const [pendente, iniciar] = useTransition();
-  const [modo, setModo] = useState<"parado" | "aprovando" | "descartando">("parado");
+  return (
+    <div className="flex shrink-0 flex-wrap items-start justify-end gap-1.5">
+      <Descartar darfId={darfId} />
+      <BotaoAcao
+        acao={() => aprovar(darfId)}
+        variante="primario"
+        tamanho="pequeno"
+        rotuloPendente="emitindo…"
+        confirmacao={{
+          titulo: "Emitir e enviar este DARF?",
+          descricao: (
+            <p>
+              O documento de <strong>{resumo}</strong> será emitido no SICALC e enviado ao
+              cliente pelo WhatsApp. Não há como desfazer o envio.
+            </p>
+          ),
+          rotuloConfirmar: "Emitir e enviar",
+        }}
+      >
+        Aprovar e emitir
+      </BotaoAcao>
+    </div>
+  );
+}
+
+function Descartar({ darfId }: { darfId: string }) {
+  const [aberto, setAberto] = useState(false);
   const [motivo, setMotivo] = useState("");
-  const [erro, setErro] = useState<string | null>(null);
+  const [pendente, iniciar] = useTransition();
+  const avisos = useAvisos();
 
-  if (modo === "parado") {
-    return (
-      <div className="flex shrink-0 flex-col items-end gap-1">
-        <div className="flex gap-1.5">
-          <Botao
-            variante="secundario"
-            onClick={() => setModo("descartando")}
-            className="px-2 py-1 text-xs"
-          >
-            Descartar
-          </Botao>
-          <Botao onClick={() => setModo("aprovando")} className="px-2 py-1 text-xs">
-            Aprovar e emitir
-          </Botao>
-        </div>
-        {erro && <p className="max-w-xs text-right text-xs text-alerta">{erro}</p>}
-      </div>
-    );
-  }
+  return (
+    <>
+      <Botao variante="secundario" tamanho="pequeno" onClick={() => setAberto(true)}>
+        Descartar
+      </Botao>
 
-  if (modo === "aprovando") {
-    return (
-      <div className="flex shrink-0 flex-col items-end gap-1.5">
-        <p className="max-w-xs text-right text-xs text-tinta-fraca">
-          Emitir e enviar <strong>{resumo}</strong> ao cliente?
-        </p>
-        <div className="flex gap-1.5">
-          <Botao
-            variante="secundario"
-            disabled={pendente}
-            onClick={() => setModo("parado")}
-            className="px-2 py-1 text-xs"
-          >
-            Cancelar
-          </Botao>
-          <Botao
-            disabled={pendente}
-            onClick={() =>
+      <Dialogo
+        aberto={aberto}
+        titulo="Descartar este pedido de DARF?"
+        aoFechar={() => !pendente && setAberto(false)}
+        rodape={
+          <RodapeDialogo
+            aoCancelar={() => setAberto(false)}
+            aoConfirmar={() =>
               iniciar(async () => {
-                const r = await aprovar(darfId);
-                if (!r.ok) {
-                  setErro(r.erro);
-                  setModo("parado");
+                const r = await descartar(darfId, motivo.trim());
+                if (r.ok) {
+                  avisos.sucesso(r.mensagem ?? "Pedido descartado.");
+                  setAberto(false);
+                  setMotivo("");
                 } else {
-                  setErro(null);
-                  setModo("parado");
+                  avisos.falha(r.erro);
                 }
               })
             }
-            className="px-2 py-1 text-xs"
-          >
-            {pendente ? "emitindo…" : "Confirmar"}
-          </Botao>
+            rotuloConfirmar="Descartar"
+            variante="perigo"
+            pendente={pendente}
+            confirmarDesabilitado={motivo.trim().length === 0}
+          />
+        }
+      >
+        <div className="space-y-3">
+          <p className="text-tinta-fraca">
+            O pedido fica registrado como recusado, com o motivo — o cliente pediu alguma coisa,
+            e o registro é o que responde a ele depois.
+          </p>
+          <Campo label="Por que não emitir?" obrigatorio>
+            <AreaTexto
+              value={motivo}
+              onChange={(e) => setMotivo(e.target.value)}
+              rows={3}
+              placeholder="Ex.: débito já pago, valor a apurar, cliente desistiu"
+            />
+          </Campo>
         </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="flex shrink-0 flex-col items-end gap-1.5">
-      <Entrada
-        value={motivo}
-        onChange={(e) => setMotivo(e.target.value)}
-        placeholder="Por que não emitir?"
-        className="w-56 py-1 text-xs"
-      />
-      <div className="flex gap-1.5">
-        <Botao
-          variante="secundario"
-          disabled={pendente}
-          onClick={() => setModo("parado")}
-          className="px-2 py-1 text-xs"
-        >
-          Cancelar
-        </Botao>
-        <Botao
-          variante="perigo"
-          disabled={pendente || motivo.trim().length === 0}
-          onClick={() =>
-            iniciar(async () => {
-              const r = await descartar(darfId, motivo.trim());
-              if (!r.ok) setErro(r.erro);
-              setModo("parado");
-              setMotivo("");
-            })
-          }
-          className="px-2 py-1 text-xs"
-        >
-          {pendente ? "…" : "Descartar"}
-        </Botao>
-      </div>
-    </div>
+      </Dialogo>
+    </>
   );
 }
