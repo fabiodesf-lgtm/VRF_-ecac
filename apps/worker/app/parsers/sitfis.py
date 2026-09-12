@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import re
 from dataclasses import dataclass, field
 from datetime import date
 
@@ -55,6 +56,21 @@ SITUACOES_NAO_COBRAVEIS = {
 
 # Situações que pedem tratamento como suspensão, independentemente da seção.
 MARCADORES_SUSPENSAO = ("SUSPENS", "JUDICIAL", "LIMINAR", "IMPUGNA", "RECURSO")
+
+# "A ANALISAR-A VENCER" — confirmado contra um relatório real — é a Receita
+# dizendo que ainda não terminou de processar aquele débito, ainda que a data de
+# vencimento já tenha passado na data do relatório. Cobrar automaticamente algo
+# que a própria Receita ainda está analisando arrisca mandar uma cobrança
+# prematura por um débito que pode se resolver sozinho (pagamento ainda não
+# conciliado, por exemplo). Por isso vira baixa confiança, não devedor comum: o
+# débito aparece no painel para conferência, mas não entra na régua sozinho.
+MARCADORES_EM_ANALISE = ("A ANALISAR", "EM ANALISE")
+
+# Linha de continuação: no relatório real a situação de um débito sai numa linha
+# própria, logo abaixo dos valores ("Situação: A ANALISAR-A VENCER"), e não na
+# mesma linha do débito. Sem juntar as duas, a segunda linha não casa com
+# nenhum parser de seção e o débito fica sem situação nenhuma.
+_SITUACAO_CONTINUACAO = re.compile(r"^situa[çc][ãa]o\s*:\s*(.+)$", re.I)
 
 
 @dataclass
@@ -195,6 +211,14 @@ def _decidir_confianca(
     Devolve também o motivo da recusa, que vai para o painel — "conferir" sem
     dizer o quê não ajuda ninguém.
     """
+    texto_situacao = (linha.situacao_texto or "").upper()
+    if any(marcador in texto_situacao for marcador in MARCADORES_EM_ANALISE):
+        return (
+            Confianca.BAIXA,
+            f"situação '{linha.situacao_texto}' — a Receita ainda está processando "
+            "este débito; confira antes de cobrar",
+        )
+
     if situacao not in (SituacaoDebito.DEVEDOR, SituacaoDebito.DIVIDA_ATIVA):
         # Não é para cobrar: a confiança do parse é irrelevante.
         return Confianca.BAIXA, f"situação {situacao.value} não entra na régua"
@@ -301,10 +325,26 @@ def analisar(conteudo: bytes) -> ResultadoSitfis:
     for bloco in blocos:
         lidas = 0
         ignoradas = 0
+        linhas = bloco.linhas
+        indice = 0
 
-        for bruta in bloco.linhas:
+        while indice < len(linhas):
+            bruta = linhas[indice]
+            indice += 1
+
             if eh_cabecalho_de_colunas(bruta):
                 continue
+
+            # Uma ou mais linhas "Situação: ..." logo em seguida são
+            # continuação desta, não débitos novos — confirmado contra um
+            # relatório real, onde a situação nunca vem na mesma linha do
+            # débito.
+            while indice < len(linhas):
+                continuacao = _SITUACAO_CONTINUACAO.match(linhas[indice].strip())
+                if continuacao is None:
+                    break
+                bruta = f"{bruta} {continuacao.group(1).strip()}"
+                indice += 1
 
             colunas = separar_colunas(bruta)
             lida = bloco.secao.parser(colunas, bruta)
@@ -376,6 +416,15 @@ def analisar(conteudo: bytes) -> ResultadoSitfis:
             len(desconhecidas),
             "; ".join(desconhecidas[:5]),
         )
+
+    # A frase "não consta" pode estar dizendo isso só de UM órgão (a
+    # Procuradoria diz "sem pendência para mim", enquanto a Receita Federal, na
+    # mesma página, lista dois débitos reais) — confirmado contra um relatório
+    # real. `nada_consta` só vale como sinal do relatório inteiro quando também
+    # não sobrou nenhum débito extraído; caso contrário ele mentiria dizendo que
+    # não há nada a cobrar quando há.
+    if debitos:
+        nada_consta = False
 
     return ResultadoSitfis(
         debitos=tuple(debitos),

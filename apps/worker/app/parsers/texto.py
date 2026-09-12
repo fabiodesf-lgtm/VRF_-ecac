@@ -142,10 +142,24 @@ def parece_periodo(coluna: str) -> bool:
 def separar_colunas(linha: str) -> list[str]:
     """Divide uma linha do relatório em colunas.
 
-    O relatório alinha colunas com espaços, então dois ou mais espaços separam
-    campos e um espaço simples pertence ao conteúdo ("PARCELAMENTO ORDINARIO").
+    O relatório tem **dois formatos observados** de saída de texto, e a linha
+    decide sozinha qual é o seu: quando alinha colunas com espaços largos, dois
+    ou mais espaços separam campos e um espaço simples pertence ao conteúdo
+    ("PARCELAMENTO ORDINARIO"). Quando não há espaço largo nenhum — confirmado
+    contra um relatório SITFIS real extraído com `pdfplumber`, onde o texto sai
+    corrido, palavra a palavra, sem alinhamento — cada espaço simples já separa
+    um campo.
+
+    Sem este segundo modo, uma linha de relatório real vira **uma única coluna**
+    (o `re.split` sem nenhuma ocorrência do padrão devolve a string inteira), e
+    todo parser de seção que exige um mínimo de colunas descarta a linha inteira
+    — foi exatamente o que aconteceu: um relatório real com dois débitos reais
+    saiu com zero débitos extraídos até este modo ser adicionado.
     """
-    return [parte.strip() for parte in re.split(r"\s{2,}", linha.strip()) if parte.strip()]
+    bruta = linha.strip()
+    if re.search(r"\s{2,}", bruta):
+        return [parte.strip() for parte in re.split(r"\s{2,}", bruta) if parte.strip()]
+    return bruta.split()
 
 
 def contar_colunas(linha: str) -> int:
@@ -158,14 +172,35 @@ def contar_colunas(linha: str) -> int:
 
 
 def eh_cabecalho_de_colunas(linha: str) -> bool:
-    """Reconhece a linha de rótulos de coluna, que não é um débito."""
+    """Reconhece a linha de rótulos de coluna, que não é um débito.
+
+    O relatório separa este cabeçalho em colunas por espaço largo ("Receita
+    PA  Vencimento  ...", uma palavra por coluna) ou em texto corrido de uma
+    palavra por vez ("Receita PA/Exerc. Dt. Vcto Vl. Original Sdo. Devedor
+    Multa Juros Sdo. Dev. Cons.", confirmado contra um relatório real). Os dois
+    formatos quebram a mesma frase em pedaços diferentes, então o conjunto de
+    rótulos cobre ambos: a forma colada ("VLORIGINAL") e as partes soltas que o
+    texto corrido produz ("VL", "ORIGINAL", "SDO", "DEVEDOR", "DEV", "CONS").
+    """
     colunas = {c.upper().replace(".", "").replace(" ", "") for c in separar_colunas(linha)}
     rotulos = {
         "RECEITA",
         "PA",
+        "PA/EXERC",
+        "EXERC",
         "VENCIMENTO",
+        "VCTO",
+        "DT",
+        "VL",
+        "ORIGINAL",
         "VLORIGINAL",
+        "SDO",
+        "DEVEDOR",
         "SALDODEVEDOR",
+        "MULTA",
+        "JUROS",
+        "DEV",
+        "CONS",
         "SITUACAO",
         "SITUAÇÃO",
         "MODALIDADE",

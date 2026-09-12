@@ -416,3 +416,122 @@ def test_titulos_do_documento_nao_contam_como_secao_desconhecida() -> None:
     for fixture in ("relatorio_exemplo.txt", "nada_consta.txt"):
         r = analisar(carregar(fixture))
         assert not any("DIAGN" in s.upper() for s in r.secoes_desconhecidas), fixture
+
+
+# ───────────────────────────────────────────────────────────────────────────
+# Relatório real (texto corrido, sem alinhamento por espaço largo)
+#
+# `relatorio_real_texto_corrido.txt` reproduz — com CNPJ, razão social e demais
+# dados identificadores trocados por valores fictícios — a estrutura de um
+# relatório SITFIS real, obtido em 2026 e extraído com `pdfplumber`. É diferente
+# das outras fixtures deste diretório numa dimensão que importa: elas foram
+# escritas a partir da documentação, com colunas alinhadas por espaço largo;
+# esta veio de um PDF de verdade, e o texto sai corrido, palavra a palavra, sem
+# alinhamento nenhum.
+#
+# Contra o relatório real original (sem a linha extra de IRPJ, que é acréscimo
+# deste arquivo para também exercitar o caminho de alta confiança), o parser
+# ORIGINAL não lia nenhum débito: toda linha de dado colapsava numa única
+# "coluna" e todo parser de seção a descartava por não ter campos suficientes.
+# Estes testes existem para que essa regressão nunca mais aconteça em silêncio.
+# ───────────────────────────────────────────────────────────────────────────
+
+
+def test_relatorio_real_extrai_todos_os_debitos() -> None:
+    r = analisar(carregar("relatorio_real_texto_corrido.txt"))
+
+    assert not r.parcial, (r.secoes_desconhecidas, r.linhas_nao_lidas)
+    assert not r.nada_consta
+    assert len(r.debitos) == 3
+
+
+def test_relatorio_real_le_descricao_e_valores_consolidados() -> None:
+    """A descrição do tributo e os cinco valores (original/saldo/multa/juros/
+    consolidado) vêm intercalados com texto solto, sem alinhamento nenhum —
+    isso é o que este teste confirma que o parser consegue separar."""
+    r = analisar(carregar("relatorio_real_texto_corrido.txt"))
+    cp_segur = [d for d in r.debitos if d.codigo_receita == "1082-01"]
+    assert len(cp_segur) == 1
+    d = cp_segur[0]
+
+    assert d.descricao == "CP-SEGUR. · PA 07/2026"
+    assert d.periodo_apuracao == "07/2026"
+    assert d.data_vencimento == date(2026, 8, 20)
+    assert d.valor_original == Decimal("155.32")
+    assert d.multa == Decimal("3.07")
+    assert d.juros == Decimal("0.00")
+    # O saldo a cobrar é o CONSOLIDADO (com multa e juros), não o "Sdo. Devedor"
+    # isolado (que aqui vale o mesmo que o original, 155,32) — cobrar por ele
+    # subestimaria o que falta pagar.
+    assert d.saldo_devedor == Decimal("158.39")
+
+
+def test_relatorio_real_situacao_vem_de_linha_separada() -> None:
+    """ "Situação: ..." sai numa linha própria, abaixo dos valores — não na mesma
+    linha do débito. Sem mesclar as duas, o débito fica sem situação nenhuma."""
+    r = analisar(carregar("relatorio_real_texto_corrido.txt"))
+    d = next(d for d in r.debitos if d.codigo_receita == "1082-01")
+    assert d.raw["situacao_texto"] == "A ANALISAR-A VENCER"
+
+
+def test_relatorio_real_a_analisar_vira_baixa_confianca() -> None:
+    """A Receita ainda processando o débito não é o mesmo que devedor confirmado.
+
+    O vencimento já passou na data do relatório, mas "A ANALISAR-A VENCER" é a
+    própria Receita dizendo que não terminou de classificar — cobrar automático
+    em cima disso arrisca uma cobrança prematura por algo que pode se resolver
+    sozinho. Por isso baixa confiança, e não devedor comum: aparece no painel
+    para conferência, não entra na régua sozinho.
+    """
+    r = analisar(carregar("relatorio_real_texto_corrido.txt"))
+    em_analise = [d for d in r.debitos if "A ANALISAR" in (d.raw.get("situacao_texto") or "")]
+
+    assert len(em_analise) == 2
+    for d in em_analise:
+        assert d.confianca is Confianca.BAIXA
+        assert "processando" in (d.raw.get("motivo_baixa_confianca") or "")
+    assert not any(d in r.cobraveis for d in em_analise)
+
+
+def test_relatorio_real_devedor_comum_e_cobravel() -> None:
+    """A terceira linha da fixture (IRPJ, situação DEVEDOR) é o contraponto: um
+    débito comum, sem ambiguidade, deve continuar cobrável de verdade."""
+    r = analisar(carregar("relatorio_real_texto_corrido.txt"))
+    irpj = next(d for d in r.debitos if d.codigo_receita == "2089-01")
+
+    assert irpj.raw["situacao_texto"] == "DEVEDOR"
+    assert irpj.situacao is SituacaoDebito.DEVEDOR
+    assert irpj.confianca is Confianca.ALTA
+    assert irpj.saldo_devedor == Decimal("4418.90")
+    assert irpj in r.cobraveis
+
+
+def test_relatorio_real_titulos_com_regua_de_sublinhado_nao_viram_debito() -> None:
+    """As seções cadastrais reais ("Dados Cadastrais da Matriz ____", "Sócios e
+    Administradores ____", "Certidão Emitida ____") e o título com sublinhado
+    ANTES do texto ("____ Diagnóstico Fiscal...") não podem contaminar a seção
+    de débito com linhas não lidas nem sobrar como seção desconhecida."""
+    r = analisar(carregar("relatorio_real_texto_corrido.txt"))
+
+    assert r.secoes_desconhecidas == ()
+    assert r.linhas_nao_lidas == ()
+    assert len(r.secoes) == 1
+    assert r.secoes[0].chave == "debito_sief"
+    assert r.secoes[0].linhas_ignoradas == 0
+
+
+def test_relatorio_real_frase_da_procuradoria_nao_vaza_para_o_sief() -> None:
+    """ "Não foram detectadas pendências..." é a frase real da Procuradoria-Geral
+    da Fazenda Nacional — diferente do "não constam/existem" que a suposição
+    original previa. Sem reconhecê-la, ela e o rodapé da página 2 inteira
+    viravam linhas não lidas dentro da seção de débito (SIEF) ainda aberta."""
+    r = analisar(carregar("relatorio_real_texto_corrido.txt"))
+    assert r.secoes[0].linhas_lidas == 3  # só os três débitos, nada mais
+
+
+def test_relatorio_real_final_do_relatorio_e_reconhecido() -> None:
+    """ "Final do Relatório" é a frase real; "Fim do Relatório" era a suposição
+    original. Sem reconhecer a frase real, o rodapé de encerramento vazava para
+    dentro da última seção aberta como linha não lida."""
+    r = analisar(carregar("relatorio_real_texto_corrido.txt"))
+    assert r.linhas_nao_lidas == ()

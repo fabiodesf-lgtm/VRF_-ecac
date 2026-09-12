@@ -34,9 +34,11 @@ from app.storage import Storage
 
 log = logging.getLogger(__name__)
 
-# Padrões conservadores; os valores que valem estão em `configuracoes`.
+# Padrões conservadores; os valores que valem estão em `configuracoes`. Usados
+# só quando a linha de configuração falta ou vem inválida — o valor real de
+# `lgpd.retencao_mensagens_dias` é decisão do escritório (12 meses).
 PADROES = {
-    "lgpd.retencao_mensagens_dias": 730,
+    "lgpd.retencao_mensagens_dias": 365,
     "lgpd.retencao_relatorios_dias": 1825,
     "lgpd.retencao_auditoria_dias": 1825,
     "lgpd.retencao_apos_encerramento_dias": 1825,

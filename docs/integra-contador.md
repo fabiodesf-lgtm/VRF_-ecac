@@ -170,13 +170,17 @@ exatamente os quatro jeitos de ter um sistema que parece funcionar e não faz na
 **Travas que devem continuar fechadas no primeiro dia**
 
 - [ ] `darf.teto_valor = 0` e `receitas_darf` vazia — toda emissão em aprovação
-      manual até o leitor ter sido conferido contra relatório real
+      manual até o leitor ter sido conferido contra relatório real de cada
+      seção usada para gerar DARF
 - [ ] `lgpd.retencao_ativa = false` até os prazos serem conferidos
 - [ ] `regua.exigir_consentimento = true`
 
 **Antes de apontar para clientes**
 
-- [ ] parser validado contra **relatório SITFIS real anonimizado**
+- [x] parser validado contra **relatório SITFIS real anonimizado** — feito para
+      a seção "Pendência - Débito (SIEF)", a mais comum; as demais seções
+      (parcelamento, dívida ativa, exigibilidade suspensa, omissão,
+      arrolamento) continuam pendentes — ver [`PARSER.md`](PARSER.md)
 - [ ] envio testado para o **próprio número do escritório**
 - [ ] consentimento de WhatsApp registrado para cada empresa que vai receber
 - [ ] piloto com 3 a 5 empresas por uma semana, kill switch à mão

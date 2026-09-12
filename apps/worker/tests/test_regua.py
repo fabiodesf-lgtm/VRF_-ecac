@@ -9,7 +9,7 @@ dependem do estado no banco no instante do envio.
 from __future__ import annotations
 
 import os
-from datetime import datetime
+from datetime import date, datetime, time, timedelta
 
 import pytest
 from sqlalchemy import text
@@ -17,7 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
 from app.regua.avaliacao import avaliar_regua
 from app.regua.despacho import despachar_avisos
-from app.regua.janela import FUSO
+from app.regua.janela import FUSO, agora
 from app.whatsapp.mock import MockWhatsapp
 from tests.conftest import cnpj_aleatorio, cpf_aleatorio
 
@@ -207,8 +207,21 @@ async def ajustar_config(engine: AsyncEngine, chave: str, valor: str) -> None:
         )
 
 
-# fora da janela? os testes forçam o horário para dentro dela
-DENTRO_DA_JANELA = datetime(2026, 9, 11, 10, 0, tzinfo=FUSO)  # sexta, 10h
+# fora da janela? os testes forçam o horário para dentro dela.
+#
+# Calculado a partir de "hoje", não fixado numa data — os débitos criados nos
+# testes usam `public.hoje_sp() - N dias`, que é a data real do sistema no
+# instante do teste. Uma data de calendário fixa aqui funcionaria só até o
+# relógio real alcançá-la: passado esse dia, o aviso fica agendado para "hoje"
+# (real) enquanto o despacho olha para uma data já ultrapassada, e nada sai.
+def _proximo_dia_util(a_partir_de: date) -> date:
+    candidata = a_partir_de
+    while candidata.weekday() >= 5:
+        candidata += timedelta(days=1)
+    return candidata
+
+
+DENTRO_DA_JANELA = datetime.combine(_proximo_dia_util(agora().date()), time(10, 0), tzinfo=FUSO)
 
 
 async def despachar(engine: AsyncEngine, whatsapp: MockWhatsapp, **kwargs: object):

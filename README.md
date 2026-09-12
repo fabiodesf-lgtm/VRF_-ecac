@@ -60,8 +60,11 @@ e trocar para `real`.
 A **emissão automática de DARF nasce desligada na prática**: o teto de valor vem
 em zero e a lista de códigos de receita conferidos vem vazia, o que manda todo
 pedido para aprovação em `/darfs`. Esse é o estado correto até o leitor do
-relatório ser conferido contra um relatório real da Receita; soltar cada trava é
-configuração, e é decisão do escritório, receita por receita.
+relatório ter sido conferido contra um relatório real de cada seção que ele lê
+— hoje isso vale só para "Pendência - Débito (SIEF)" (débitos correntes de
+tributos federais, a mais comum); soltar cada trava é configuração, e é decisão
+do escritório, receita por receita. Detalhe em
+[`docs/PARSER.md`](docs/PARSER.md).
 
 ## Documentação
 

@@ -21,8 +21,9 @@ garantem isso ao mesmo tempo:
 
 Com teto zero **e** lista vazia, todo pedido cai na fila de `/darfs`. Esse é o
 estado correto enquanto o leitor do relatório não tiver sido conferido contra um
-relatório SITFIS real da Receita — e o painel diz isso na tela, em vez de deixar a
-fila parecer um defeito.
+relatório real **daquela seção específica** (a seção comum de débitos, SIEF, já
+foi — ver [`PARSER.md`](PARSER.md) — mas as demais ainda não) — e o painel diz
+isso na tela, em vez de deixar a fila parecer um defeito.
 
 ## O caminho de um pedido
 
@@ -153,9 +154,11 @@ não virou documento precisa ter registro de por quê.
 
 A sequência recomendada, e a razão de cada passo:
 
-1. **Conferir o parser contra um relatório real.** Sem isso, `confianca = alta`
-   não significa o que promete. Enquanto o leitor não foi conferido, manter a
-   lista de receitas vazia é o que protege.
+1. **Conferir o parser contra um relatório real daquela seção.** A seção comum
+   de débitos (SIEF) já está confirmada; qualquer outra (parcelamento, dívida
+   ativa, débito com exigibilidade suspensa) ainda não. Sem essa confirmação,
+   `confianca = alta` não significa o que promete, e manter a receita fora da
+   lista é o que protege.
 2. **Conferir um código de receita por vez** e registrar em `/darfs` →
    "Conferir um código", preenchendo **como** foi conferido e por quem. O campo de
    procedência não é enfeite: é o que sustenta a decisão de emitir sem revisão.

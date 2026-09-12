@@ -74,7 +74,9 @@ export default async function Inicio() {
         cobrança, bot de resposta e DARF via SICALC estão implementados. Antes de apontar para
         clientes de verdade:{" "}
         <strong>
-          o leitor do relatório do e-CAC ainda não foi conferido contra um relatório SITFIS real
+          o leitor do relatório do e-CAC só foi conferido contra um relatório real da seção
+          de débito comum (SIEF) — as demais seções (parcelamento, dívida ativa, exigibilidade
+          suspensa) ainda não
         </strong>
         , o envio pelo WhatsApp começa em modo de teste e toda emissão de DARF está em aprovação
         manual. O que falta conferir está em <strong>Operação</strong>.

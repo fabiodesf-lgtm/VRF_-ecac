@@ -183,7 +183,7 @@ async def despachar_avisos(
             # Intervalo aleatório: rajada é o padrão que faz conta ser restringida.
             await asyncio.sleep(random.uniform(config.jitter_min_s, config.jitter_max_s))  # noqa: S311
 
-        estado = await _despachar_um(engine, whatsapp, aviso_id, config)
+        estado = await _despachar_um(engine, whatsapp, aviso_id, config, instante)
         if estado == "enviado":
             resultado.enviados += 1
         elif estado == "falhou":
@@ -198,7 +198,11 @@ async def despachar_avisos(
 
 
 async def _despachar_um(
-    engine: AsyncEngine, whatsapp: Whatsapp, aviso_id: str, config: ConfigEnvio
+    engine: AsyncEngine,
+    whatsapp: Whatsapp,
+    aviso_id: str,
+    config: ConfigEnvio,
+    instante: datetime,
 ) -> str:
     """Envia um aviso. Devolve 'enviado', 'falhou', 'cancelado' ou o motivo da supressão."""
     async with transacao(engine) as conexao:
@@ -258,7 +262,7 @@ async def _despachar_um(
         return "falhou"
 
     async with transacao(engine) as conexao:
-        await _concluir_aviso(conexao, aviso_id, dados, corpo, enviada.message_id, config)
+        await _concluir_aviso(conexao, aviso_id, dados, corpo, enviada.message_id, config, instante)
         await registrar_auditoria(
             conexao,
             acao="regua.aviso_enviado",
@@ -455,7 +459,15 @@ async def _concluir_aviso(
     corpo: str,
     message_id: str,
     config: ConfigEnvio,
+    instante: datetime,
 ) -> None:
+    # `enviado_em` usa o INSTANTE do despacho, não `now()` do banco. Os dois
+    # normalmente coincidem, mas `despachar_avisos` aceita um `quando` explícito
+    # (para teste, ou para um reprocessamento que finge ser outro momento), e o
+    # teto diário (`_enviados_hoje`) compara `enviado_em` contra esse mesmo
+    # `quando` — se o carimbo viesse do relógio real do banco em vez do instante
+    # lógico do despacho, os dois números poderiam falar de dias diferentes e o
+    # teto contaria errado.
     mensagem_id = (
         await conexao.execute(
             text(
@@ -464,7 +476,7 @@ async def _concluir_aviso(
                     (empresa_id, direcao, whatsapp, corpo, evolution_message_id,
                      status, enviado_em, template_id, payload)
                 values (cast(:e as uuid), 'saida', :whatsapp, :corpo,
-                        nullif(:mid, ''), 'enviada', now(),
+                        nullif(:mid, ''), 'enviada', :instante,
                         (select id from public.templates where chave = :template),
                         cast(:payload as jsonb))
                 returning id::text
@@ -477,16 +489,17 @@ async def _concluir_aviso(
                 "mid": message_id,
                 "template": f"aviso_{dados.marco}",
                 "payload": json.dumps({"aviso_id": aviso_id, "marco": dados.marco}),
+                "instante": instante,
             },
         )
     ).scalar_one()
 
     await conexao.execute(
         text(
-            "update public.avisos set status = 'enviado', enviado_em = now(), "
+            "update public.avisos set status = 'enviado', enviado_em = :instante, "
             "mensagem_id = cast(:m as uuid), erro = null where id = cast(:a as uuid)"
         ),
-        {"a": aviso_id, "m": mensagem_id},
+        {"a": aviso_id, "m": mensagem_id, "instante": instante},
     )
     await conexao.execute(
         text(

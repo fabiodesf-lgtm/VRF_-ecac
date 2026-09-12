@@ -91,7 +91,7 @@ Os prazos ficam em `configuracoes`, e o job de expurgo roda às 03:30.
 
 | Chave | Padrão | O que apaga |
 |---|---|---|
-| `lgpd.retencao_mensagens_dias` | 730 | O **corpo** das mensagens; a linha fica |
+| `lgpd.retencao_mensagens_dias` | 365 | O **corpo** das mensagens; a linha fica |
 | `lgpd.retencao_relatorios_dias` | 1825 | O PDF do e-CAC no storage; a linha e o hash ficam |
 | `lgpd.retencao_auditoria_dias` | 1825 | Linhas de `audit_log` |
 | `lgpd.retencao_apos_encerramento_dias` | 1825 | Anonimiza o contato de clientes encerrados |

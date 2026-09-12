@@ -23,7 +23,6 @@ from decimal import Decimal
 
 from app.integra.base import SituacaoDebito
 from app.parsers.texto import (
-    contar_colunas,
     eh_cabecalho_de_colunas,
     ler_data,
     ler_valor,
@@ -95,41 +94,93 @@ def _classificar(colunas: list[str]) -> dict[str, list[str]]:
 
 
 def ler_debito_sief(colunas: list[str], bruta: str) -> LinhaLida | None:
-    """Receita | PA | Vencimento | Vl.Original | Saldo Devedor | Situação."""
+    """Receita [descrição] | PA | Vencimento | valores... | [situação].
+
+    A extração é por **posição relativa a campos reconhecidos**, não por índice
+    fixo, porque o relatório real intercala texto solto onde as fixtures
+    originais não previam nada:
+
+    - entre o código de receita e o período pode vir uma descrição curta do
+      tributo ("1082-01 - CP-SEGUR."), separada por um "-" que é só pontuação
+      visual, não conteúdo;
+    - depois dos valores pode vir a situação, mesclada nesta linha por quem
+      chama (`analisar()`) a partir de uma linha "Situação: ..." própria — no
+      relatório real ela sai numa linha separada, logo abaixo dos valores.
+
+    Os cinco valores confirmados contra um relatório real, nesta ordem, são
+    **Vl. Original, Sdo. Devedor, Multa, Juros, Sdo. Dev. Consolidado**. O saldo
+    que interessa para cobrar é o CONSOLIDADO — o "Sdo. Devedor" isolado é só a
+    parcela sem os acréscimos, e cobrar por ele subestima o que falta pagar.
+    Quando o relatório traz só dois valores (formato mínimo, sem confirmação
+    real ainda), mantém-se o comportamento original: original e saldo devedor.
+    """
     if len(colunas) < 3:
         return None
-    grupos = _classificar(colunas)
 
-    # O código de receita é o primeiro campo textual no formato 9999 ou 9999-99.
-    receita = next(
-        (c for c in colunas if re.fullmatch(r"\d{4}(-\d{2})?", c)),
+    indice_receita = next(
+        (i for i, c in enumerate(colunas) if re.fullmatch(r"\d{4}(-\d{2})?", c)),
         None,
     )
-    if receita is None:
+    if indice_receita is None:
         return None
+    receita = colunas[indice_receita]
+
+    # Entre o código e o primeiro campo reconhecível (data, valor ou período)
+    # fica a descrição do tributo, quando o relatório a imprime.
+    resto = colunas[indice_receita + 1 :]
+    fim_descricao = next(
+        (
+            i
+            for i, c in enumerate(resto)
+            if ler_data(c) is not None or ler_valor(c) is not None or parece_periodo(c)
+        ),
+        len(resto),
+    )
+    descricao_tributo = " ".join(c for c in resto[:fim_descricao] if c != "-").strip()
+
+    campos = resto[fim_descricao:]
+    grupos = _classificar(campos)
 
     vencimento = ler_data(grupos["datas"][0]) if grupos["datas"] else None
-    valores = [ler_valor(v) for v in grupos["valores"]]
-    valores = [v for v in valores if v is not None]
-
-    # Quando há dois valores, a ordem no relatório é original e depois saldo.
-    original = valores[0] if valores else None
-    saldo = valores[1] if len(valores) > 1 else original
-
+    valores = [v for v in (ler_valor(x) for x in grupos["valores"]) if v is not None]
     periodo = normalizar_periodo(grupos["periodos"][0]) if grupos["periodos"] else None
-    situacao = next(
-        (c for c in grupos["texto"] if c != receita and not c.isdigit()),
-        None,
+
+    original: Decimal | None
+    multa: Decimal | None
+    juros: Decimal | None
+    saldo: Decimal | None
+    if len(valores) >= 5:
+        original, multa, juros, saldo = valores[0], valores[2], valores[3], valores[4]
+    elif len(valores) == 2:
+        original, multa, juros, saldo = valores[0], None, None, valores[1]
+    elif valores:
+        original, multa, juros, saldo = valores[0], None, None, valores[-1]
+    else:
+        original = multa = juros = saldo = None
+
+    # A situação é o que sobra depois do último valor reconhecido — no formato
+    # de fixture (sem descrição) isso já era o único texto restante; no
+    # relatório real, é o texto mesclado da linha "Situação: ...".
+    indice_ultimo_valor = max(
+        (i for i, c in enumerate(campos) if ler_valor(c) is not None), default=-1
     )
+    cauda = campos[indice_ultimo_valor + 1 :] if indice_ultimo_valor >= 0 else []
+    situacao = " ".join(c for c in cauda if c != "-").strip() or None
+
+    base = descricao_tributo or f"Receita {receita}"
+    descricao = f"{base} · PA {periodo}" if periodo else base
 
     return LinhaLida(
-        descricao=f"Receita {receita}" + (f" · PA {periodo}" if periodo else ""),
+        descricao=descricao,
         codigo_receita=receita,
         periodo_apuracao=periodo,
         data_vencimento=vencimento.isoformat() if vencimento else None,
         valor_original=original,
         saldo_devedor=saldo,
+        multa=multa,
+        juros=juros,
         situacao_texto=situacao,
+        campos={"descricao_tributo": descricao_tributo} if descricao_tributo else {},
     )
 
 
@@ -324,9 +375,22 @@ SECOES: tuple[Secao, ...] = (
 # seguintes, e não são seções de pendência. Precisam ser reconhecidos
 # explicitamente, senão entrariam em `secoes_desconhecidas` e todo relatório
 # — inclusive o de quem não tem pendência alguma — sairia marcado como parcial.
+#
+# As entradas "informações de apoio", "dados cadastrais", "sócios e
+# administradores", "certidão emitida", "página:" e "ministério da economia"
+# vêm de um relatório real: o modelo "Informações de Apoio para Emissão de
+# Certidão" antecede o diagnóstico de débitos com essas seções cadastrais, e sem
+# reconhecê-las explicitamente elas ficam à mercê de o bloco de débito aberto
+# anterior (se houver) não as engolir por acidente.
 TITULOS_ESTRUTURAIS = re.compile(
     r"^(relat[óo]rio\s+de\s+situa[çc][ãa]o\s+fiscal|"
+    r"informa[çc][õo]es\s+de\s+apoio|"
     r"diagn[óo]stico\s+fiscal\b|"
+    r"dados\s+cadastrais|"
+    r"s[óo]cios\s+e\s+administradores|"
+    r"certid[ãa]o\s+emitida|"
+    r"p[áa]gina\s*:|"
+    r"minist[ée]rio\s+da\s+economia|"
     r"secretaria\s+especial|procuradoria[-\s]geral|"
     r"cnpj\s*:|cpf\s*:|nome\s+empresarial\s*:|nome\s*:|data/hora)",
     re.I,
@@ -342,19 +406,40 @@ CABECALHO_SUSPEITO = re.compile(
 )
 
 # Frases que encerram um bloco ou dizem que não há nada.
+#
+# "não foram detectadas pendências" é a frase real usada pelo relatório da
+# Procuradoria-Geral da Fazenda Nacional — diferente de "não constam/existem"
+# que a suposição original previa. Sem essa variante, a frase não fecha bloco
+# nenhum e o texto seguinte (inclusive o rodapé de outra página) vaza para
+# dentro da última seção de débito aberta.
 NADA_CONSTA = re.compile(
-    r"n[ãa]o\s+(constam?|existem?|h[áa])\s+(outras\s+)?(pend[êe]ncias?|d[ée]bitos?)|"
+    r"n[ãa]o\s+(foram\s+detectad[ao]s?|constam?|existem?|h[áa])\s+(outras\s+)?"
+    r"(pend[êe]ncias?|d[ée]bitos?|exigibilidades?)|"
     r"nada\s+consta",
     re.I,
 )
-FIM_DO_RELATORIO = re.compile(r"^fim\s+do\s+relat[óo]rio", re.I)
+# "Final do Relatório" é a frase real; "Fim do Relatório" era a suposição
+# original. As duas convivem porque não custa nada aceitar as duas.
+FIM_DO_RELATORIO = re.compile(r"^(fim|final)\s+do\s+relat[óo]rio", re.I)
+
+# Régua decorativa de sublinhados que o relatório real usa para marcar título de
+# seção ("Pendência - Débito (SIEF) ______" ou mesmo "______ Diagnóstico Fiscal
+# na Receita Federal ______", com sublinhado ANTES do texto). Um `^` ancorado
+# contra a linha crua falha nesse segundo caso — por isso todo reconhecimento de
+# título/estrutura passa primeiro por `_sem_regua`.
+_REGUA = re.compile(r"_+")
+
+
+def _sem_regua(linha: str) -> str:
+    """Colapsa espaço e remove a régua decorativa de sublinhados dos títulos."""
+    return " ".join(_REGUA.sub(" ", linha).split())
 
 
 def identificar_secao(linha: str) -> Secao | None:
     """Devolve a seção cujo cabeçalho casa com a linha, se houver."""
     if not tem_forma_de_titulo(linha):
         return None
-    texto = " ".join(linha.split())
+    texto = _sem_regua(linha)
     for secao in SECOES:
         if secao.padrao.search(texto):
             return secao
@@ -363,27 +448,32 @@ def identificar_secao(linha: str) -> Secao | None:
 
 def eh_titulo_estrutural(linha: str) -> bool:
     """Diz se a linha é título/metadado do documento, não uma seção."""
-    return bool(TITULOS_ESTRUTURAIS.match(" ".join(linha.split())))
+    return bool(TITULOS_ESTRUTURAIS.match(_sem_regua(linha)))
 
 
 def tem_forma_de_titulo(linha: str) -> bool:
     """Diz se a linha pode ser um título de seção, pela forma.
 
-    Existe porque o nome de uma seção e o conteúdo de uma linha de dados podem
-    começar igual: a modalidade de um parcelamento se chama "PARCELAMENTO
-    ORDINARIO - LEI 10.522/02", e um padrão de seção que casasse só pelo início
-    tomaria essa linha de dados por um cabeçalho novo — abrindo um bloco vazio e
-    perdendo silenciosamente o parcelamento inteiro.
+    O sinal principal é não ter nenhum campo reconhecível (data ou valor): um
+    título é uma frase solta, uma linha de dado sempre carrega pelo menos um dos
+    dois. Isso vale tanto para relatório com colunas alinhadas por espaço largo
+    quanto para o texto corrido do relatório real (`separar_colunas` decide
+    sozinho como separar; aqui só importa o que sobra depois de separado).
 
-    Um título de verdade é uma linha solta: poucas colunas, sem data e sem valor.
+    A contagem de colunas só entra como reforço quando a linha **usa** espaço
+    largo: nesse formato, o nome de uma seção e o conteúdo de uma linha de dados
+    podem começar igual — a modalidade de um parcelamento se chama "PARCELAMENTO
+    ORDINARIO - LEI 10.522/02" — e sem esse reforço um padrão de seção que
+    casasse só pelo início tomaria a linha de dados por um cabeçalho novo,
+    perdendo o parcelamento inteiro. Um título de verdade, nesse formato, é uma
+    linha com poucas colunas.
     """
     if eh_cabecalho_de_colunas(linha):
         return False
-    if contar_colunas(linha) > 2:
+    colunas = separar_colunas(linha)
+    if any(ler_data(c) is not None or ler_valor(c) is not None for c in colunas):
         return False
-    return not any(
-        ler_data(c) is not None or ler_valor(c) is not None for c in separar_colunas(linha)
-    )
+    return not (re.search(r"\s{2,}", linha) and len(colunas) > 2)
 
 
 def parece_cabecalho(linha: str) -> bool:
@@ -394,13 +484,10 @@ def parece_cabecalho(linha: str) -> bool:
     inicia nome de seção, então precisa ser descartado primeiro — se fosse tomado
     por seção nova, ele fecharia o bloco corrente e as linhas de dados logo
     abaixo ficariam órfãs, sem virar débito nenhum.
-
-    A contagem de colunas é feita na linha CRUA, pelo mesmo motivo: colapsar os
-    espaços antes de contar apagaria a separação entre as colunas.
     """
     if eh_titulo_estrutural(linha):
         return False
     if not tem_forma_de_titulo(linha):
         return False
-    texto = " ".join(linha.split())
+    texto = _sem_regua(linha)
     return bool(texto) and bool(CABECALHO_SUSPEITO.match(texto))
