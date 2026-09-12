@@ -1,6 +1,17 @@
 import Link from "next/link";
 
-import { Aviso, Card, Etiqueta, Tabela, Td, Th, Vazio } from "@/components/ui";
+import {
+  Aviso,
+  Cabecalho,
+  Card,
+  Copiar,
+  Etiqueta,
+  Indicador,
+  Tabela,
+  Td,
+  Th,
+  Vazio,
+} from "@/components/ui";
 import { criarClienteServidor, usuarioAtual } from "@/lib/supabase/server";
 import { formatarCnpj, formatarData, formatarMoeda } from "@/lib/validacao";
 import { AcoesDarf } from "./acoes-darf";
@@ -24,13 +35,13 @@ export default async function Darfs() {
     supabase
       .from("darfs")
       .select(
-        "id, status, data_consolidacao, valor_total, valor_principal, motivo_aprovacao, erro, created_at, enviado_em, codigo_barras, empresas(id, cnpj, razao_social), debitos(descricao, codigo_receita, saldo_devedor)",
+        "id, status, data_consolidacao, valor_total, valor_principal, motivo_aprovacao, erro, created_at, enviado_em, codigo_barras, pdf_storage_path, empresas(id, cnpj, razao_social), debitos(descricao, codigo_receita, saldo_devedor)",
       )
       .order("created_at", { ascending: false })
       .limit(100),
     supabase.from("receitas_darf").select("codigo, descricao, ativo, teto_valor").order("codigo"),
     supabase
-      .from("configuracoes")
+      .from("configuracoes_publicas")
       .select("chave, valor")
       .in("chave", ["darf.auto_emitir", "darf.teto_valor", "regua.kill_switch"]),
   ]);
@@ -39,20 +50,25 @@ export default async function Darfs() {
   const fila = todos.filter((d) => d.status === "aguardando_aprovacao");
   const historico = todos.filter((d) => d.status !== "aguardando_aprovacao");
   const liberadas = (receitas ?? []).filter((r) => r.ativo);
+  const enviados = historico.filter((d) => d.status === "enviado");
+  const falhados = historico.filter((d) => d.status === "falhou");
 
-  const valores = new Map((config ?? []).map((c) => [c.chave, c.valor]));
+  const valores = new Map((config ?? []).map((c) => [c.chave ?? "", c.valor]));
   const teto = Number(valores.get("darf.teto_valor") ?? 0);
   const autoEmitir = valores.get("darf.auto_emitir") !== false;
   const killSwitch = valores.get("regua.kill_switch") === true;
 
   return (
     <div className="space-y-5">
-      <div>
-        <h1 className="text-lg font-semibold text-tinta">DARFs</h1>
-        <p className="mt-1 text-sm text-tinta-fraca">
-          Recálculos pedidos pelos clientes e documentos emitidos pelo SICALC.
-        </p>
-      </div>
+      <Cabecalho
+        titulo="DARFs"
+        descricao="Recálculos pedidos pelos clientes e documentos emitidos pelo SICALC."
+        acao={
+          <Link href="/configuracoes?aba=darf" className="text-sm text-marca underline">
+            configurar as travas
+          </Link>
+        }
+      />
 
       {(liberadas.length === 0 || teto === 0 || !autoEmitir || killSwitch) && (
         <Aviso tom="atencao">
@@ -70,6 +86,21 @@ export default async function Darfs() {
         </Aviso>
       )}
 
+      <div className="grid gap-4 sm:grid-cols-3">
+        <Indicador
+          rotulo="Aguardando aprovação"
+          valor={String(fila.length)}
+          detalhe={fila.length > 0 ? "cliente esperando o documento" : "fila vazia"}
+          tom={fila.length > 0 ? "destaque" : "neutro"}
+        />
+        <Indicador rotulo="Enviados" valor={String(enviados.length)} detalhe="últimos 100" />
+        <Indicador
+          rotulo="Falhados ou descartados"
+          valor={String(falhados.length)}
+          tom={falhados.length > 0 ? "destaque" : "neutro"}
+        />
+      </div>
+
       <Card titulo={`Aguardando aprovação (${fila.length})`}>
         {fila.length === 0 ? (
           <Vazio titulo="Nenhum DARF na fila">
@@ -82,7 +113,7 @@ export default async function Darfs() {
               const valor = d.valor_total ?? d.debitos?.saldo_devedor ?? null;
               const resumo = `${formatarMoeda(valor)} para ${formatarData(d.data_consolidacao)}`;
               return (
-                <li key={d.id} className="flex items-start gap-3 py-3 first:pt-0 last:pb-0">
+                <li key={d.id} className="flex flex-wrap items-start gap-3 py-3 first:pt-0 last:pb-0">
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2">
                       {d.empresas?.id ? (
@@ -122,7 +153,10 @@ export default async function Darfs() {
         )}
       </Card>
 
-      <Card titulo="Códigos de receita conferidos">
+      <Card
+        titulo="Códigos de receita conferidos"
+        descricao="Um código só emite sem revisão depois de alguém registrar como foi conferido."
+      >
         {ehAdmin ? (
           <div className="mb-3">
             <FormularioReceita />
@@ -144,7 +178,7 @@ export default async function Darfs() {
               <tr>
                 <Th>Código</Th>
                 <Th>Descrição</Th>
-                <Th>Teto próprio</Th>
+                <Th alinhar="direita">Teto próprio</Th>
                 <Th>Situação</Th>
               </tr>
             </thead>
@@ -182,6 +216,7 @@ export default async function Darfs() {
                 <Th>Pagamento</Th>
                 <Th alinhar="direita">Total</Th>
                 <Th>Situação</Th>
+                <Th>Documento</Th>
               </tr>
             </thead>
             <tbody>
@@ -206,6 +241,32 @@ export default async function Darfs() {
                     {d.erro && (
                       <span className="mt-0.5 block text-xs text-tinta-fraca">{d.erro}</span>
                     )}
+                  </Td>
+                  <Td>
+                    {/* O PDF e o código de barras eram gravados e não tinham como
+                        ser alcançados pelo painel: o DARF emitido ficava fora do
+                        alcance de quem precisa reenviá-lo ao cliente. */}
+                    <div className="flex flex-col gap-1">
+                      {d.pdf_storage_path && (
+                        <a
+                          href={`/api/arquivos/darf/${d.id}`}
+                          className="text-xs text-marca underline"
+                        >
+                          baixar PDF
+                        </a>
+                      )}
+                      {d.codigo_barras && (
+                        <span className="flex items-center gap-2">
+                          <code className="tabular text-xs text-tinta-fraca">
+                            {d.codigo_barras.slice(0, 12)}…
+                          </code>
+                          <Copiar valor={d.codigo_barras} rotulo="copiar código" />
+                        </span>
+                      )}
+                      {!d.pdf_storage_path && !d.codigo_barras && (
+                        <span className="text-xs text-tinta-fraca">—</span>
+                      )}
+                    </div>
                   </Td>
                 </tr>
               ))}

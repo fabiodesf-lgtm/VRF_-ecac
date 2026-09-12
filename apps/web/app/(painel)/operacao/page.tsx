@@ -1,4 +1,6 @@
-import { Aviso, Card, Etiqueta, Tabela, Td, Th } from "@/components/ui";
+import Link from "next/link";
+
+import { Aviso, Cabecalho, Card, Etiqueta, Indicador, Tabela, Td, Th } from "@/components/ui";
 import { formatarData, formatarMoeda } from "@/lib/validacao";
 import { diagnosticoOperacao } from "@/lib/worker";
 
@@ -72,7 +74,7 @@ export default async function Operacao() {
   if (!diag) {
     return (
       <div className="space-y-5">
-        <Cabecalho />
+        <CabecalhoOperacao />
         <Aviso tom="alerta">
           <strong>O worker não respondeu.</strong> Sem ele nada funciona: nem a coleta de
           débitos, nem o envio de mensagens, nem o bot. Confira se o processo está de pé e se
@@ -87,7 +89,7 @@ export default async function Operacao() {
 
   return (
     <div className="space-y-5">
-      <Cabecalho />
+      <CabecalhoOperacao />
 
       {diag.alertas.length === 0 ? (
         <Aviso tom="sucesso">
@@ -148,21 +150,12 @@ export default async function Operacao() {
               const numero = typeof bruto === "number" ? bruto : Number(bruto ?? 0);
               const destacar = ZERO_E_O_ESPERADO.has(chave) && numero > 0;
               return (
-                <div
+                <Indicador
                   key={chave}
-                  className={`rounded-md border px-3 py-2 ${
-                    destacar ? "border-atencao/30 bg-atencao-clara" : "border-linha bg-fundo"
-                  }`}
-                >
-                  <p className="text-xs text-tinta-fraca">{rotulo}</p>
-                  <p
-                    className={`tabular mt-0.5 text-lg font-semibold ${
-                      destacar ? "text-atencao" : "text-tinta"
-                    }`}
-                  >
-                    {MONETARIAS.has(chave) ? formatarMoeda(bruto as string) : numero}
-                  </p>
-                </div>
+                  rotulo={rotulo}
+                  valor={MONETARIAS.has(chave) ? formatarMoeda(bruto as string) : numero}
+                  tom={destacar ? "destaque" : "neutro"}
+                />
               );
             })}
           </div>
@@ -179,13 +172,21 @@ export default async function Operacao() {
   );
 }
 
-function Cabecalho() {
+function CabecalhoOperacao() {
   return (
-    <div>
-      <h1 className="text-lg font-semibold text-tinta">Operação</h1>
-      <p className="mt-1 text-sm text-tinta-fraca">
-        Se a cobrança está funcionando hoje — e o que está prestes a quebrar.
-      </p>
-    </div>
+    <Cabecalho
+      titulo="Operação"
+      descricao="Se a cobrança está funcionando hoje — e o que está prestes a quebrar."
+      acao={
+        <>
+          <Link href="/configuracoes" className="text-sm text-marca underline">
+            configurações
+          </Link>
+          <Link href="/auditoria" className="text-sm text-marca underline">
+            auditoria
+          </Link>
+        </>
+      }
+    />
   );
 }

@@ -42,6 +42,11 @@ recálculo, ciência e encaminhamento para atendimento humano.
   registrado e os avisos pendentes cancelados;
 - **observabilidade**: tela de operação que responde "a cobrança está funcionando
   hoje?", com alertas do que está prestes a quebrar;
+- **configuração pelo painel**: marcos da régua, janela de envio, feriados, tetos
+  de volume, travas do DARF, prazos da LGPD e os textos das mensagens — com prévia
+  e recusa de variável que faria o envio falhar. Nada disso exige SQL;
+- **log de mensagens e auditoria**: tudo que saiu e entrou pelo WhatsApp, e o
+  registro de quem fez o quê no sistema, com filtros;
 - **LGPD**: registro dos pedidos de titular com prazo, exportação dos dados de um
   cliente em JSON, anonimização que preserva o registro fiscal, e política de
   retenção com modo de simulação;
@@ -96,6 +101,27 @@ docs/              Plano, desenvolvimento, segurança
 O worker existe separado porque três coisas do fluxo são desconfortáveis em
 TypeScript e naturais em Python: mTLS com `.pfx`, assinatura XMLDSig do termo de
 procurador, e parsing do PDF do relatório do SITFIS.
+
+## Painel
+
+| Rota | O que faz |
+|---|---|
+| `/` | Visão geral: total em aberto, faixas de atraso, maiores devedores, fila de tarefas |
+| `/empresas` | Carteira com busca, filtros e os interruptores de avisos e de situação |
+| `/procuradores` | Titulares dos certificados A1, com envio do certificado e confirmação de procuração |
+| `/debitos` | Todos os débitos em aberto, filtráveis por faixa, situação e empresa |
+| `/regua` | Estado da régua, fila de avisos e os controles de envio e kill switch |
+| `/darfs` | Fila de aprovação, códigos de receita conferidos e histórico com o PDF |
+| `/atendimento` | Clientes esperando pessoa e pendências internas |
+| `/mensagens` | Log de tudo que saiu e entrou pelo WhatsApp |
+| `/operacao` | Se a cobrança está funcionando hoje, e o que está prestes a quebrar |
+| `/configuracoes` | Régua, envio, DARF, bot, LGPD, integrações e os textos das mensagens |
+| `/lgpd` | Pedidos de titular, exportação de dados e retenção |
+| `/auditoria` | Quem fez o quê, quando |
+
+A interface é escrita à mão sobre Tailwind, sem biblioteca de componentes: são
+poucos primitivos, o painel é denso e tabular, e cada dependência a menos é uma
+superfície a menos num sistema que manipula certificado digital.
 
 ## Início rápido
 

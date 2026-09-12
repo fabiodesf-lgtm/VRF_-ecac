@@ -157,31 +157,136 @@ export async function subirCertificado(
   }
 }
 
+/**
+ * Atualiza o cadastro de um procurador.
+ *
+ * O certificado não passa por aqui: ele tem caminho próprio, pelo worker. Isto é
+ * nome, documento e tipo — e existe porque sem edição um erro de digitação no nome
+ * do titular era permanente, e o nome é o que a equipe confere contra o
+ * certificado.
+ */
+export async function atualizarProcurador(
+  id: string,
+  _anterior: unknown,
+  dados: FormData,
+): Promise<ResultadoAcao> {
+  const analise = esquemaProcurador.safeParse({
+    nome: String(dados.get("nome") ?? ""),
+    cpf_cnpj: String(dados.get("cpf_cnpj") ?? ""),
+    tipo: String(dados.get("tipo") ?? "ecpf"),
+    observacao: String(dados.get("observacao") ?? ""),
+  });
+  if (!analise.success) return erroDeValidacao(analise.error);
+  const v = analise.data;
+
+  const supabase = await criarClienteServidor();
+  const { error } = await supabase
+    .from("procuradores")
+    .update({
+      nome: v.nome,
+      cpf_cnpj: v.cpf_cnpj,
+      tipo: v.tipo,
+      observacao: v.observacao || null,
+    })
+    .eq("id", id);
+
+  if (error) return { ok: false, erro: mensagemDeErroDoBanco(error.message) };
+
+  await registrarAuditoria("procurador.atualizado", id, { nome: v.nome, tipo: v.tipo });
+  revalidatePath("/procuradores");
+  revalidatePath(`/procuradores/${id}`);
+  return { ok: true, id, mensagem: "Cadastro do procurador atualizado." };
+}
+
+/**
+ * Ativa ou inativa um procurador.
+ *
+ * Procurador inativo sai da lista de escolha no cadastro de empresa. As empresas
+ * já vinculadas continuam vinculadas — desfazer isso em silêncio deixaria a
+ * carteira sem procurador e as consultas falhando sem explicação.
+ */
+export async function alterarStatusProcurador(
+  id: string,
+  ativar: boolean,
+): Promise<ResultadoAcao> {
+  const supabase = await criarClienteServidor();
+  const status = ativar ? "ativo" : "inativo";
+  const { data, error } = await supabase
+    .from("procuradores")
+    .update({ status })
+    .eq("id", id)
+    .select("nome")
+    .maybeSingle();
+  if (error) return { ok: false, erro: mensagemDeErroDoBanco(error.message) };
+  if (!data) return { ok: false, erro: "Procurador não encontrado." };
+
+  await registrarAuditoria("procurador.status_alterado", id, { status });
+  revalidatePath("/procuradores");
+  revalidatePath(`/procuradores/${id}`);
+  return {
+    ok: true,
+    id,
+    mensagem: ativar ? `${data.nome} reativado.` : `${data.nome} inativado.`,
+  };
+}
+
+/**
+ * Confirma (ou desfaz) a procuração e-CAC de uma empresa para o seu procurador.
+ *
+ * É a trava que mais bloqueava o sistema na prática: o painel mostrava
+ * "procuração pendente" em quatro telas e não havia nenhum botão para confirmá-la,
+ * e sem ela a SERPRO recusa toda consulta da empresa.
+ *
+ * A confirmação é um registro do escritório, não uma verificação automática:
+ * alguém conferiu no e-CAC que a procuração existe e está vigente. Por isso
+ * também dá para desfazer — procuração vence.
+ */
 export async function marcarProcuracao(
   empresaId: string,
   confirmada: boolean,
 ): Promise<ResultadoAcao> {
   const supabase = await criarClienteServidor();
-  const { error } = await supabase
+  const { data, error } = await supabase
     .from("empresas")
     .update({ procuracao_ecac_ok: confirmada })
-    .eq("id", empresaId);
+    .eq("id", empresaId)
+    .select("razao_social, procurador_id")
+    .maybeSingle();
   if (error) return { ok: false, erro: mensagemDeErroDoBanco(error.message) };
+  if (!data) return { ok: false, erro: "Empresa não encontrada." };
+
+  await registrarAuditoria(
+    confirmada ? "empresa.procuracao_confirmada" : "empresa.procuracao_revogada",
+    empresaId,
+    { procuracao_ecac_ok: confirmada },
+    "empresas",
+  );
 
   revalidatePath(`/empresas/${empresaId}`);
-  return { ok: true };
+  revalidatePath("/empresas");
+  revalidatePath("/procuradores");
+  if (data.procurador_id) revalidatePath(`/procuradores/${data.procurador_id}`);
+  revalidatePath("/");
+
+  return {
+    ok: true,
+    mensagem: confirmada
+      ? `Procuração de ${data.razao_social} confirmada. As consultas ao e-CAC estão liberadas.`
+      : `Procuração de ${data.razao_social} marcada como pendente. As consultas vão falhar até ser confirmada de novo.`,
+  };
 }
 
 async function registrarAuditoria(
   acao: string,
   entidadeId: string,
   depois: Record<string, Json>,
+  entidade = "procuradores",
 ): Promise<void> {
   const atual = await usuarioAtual();
   const supabase = await criarClienteServidor();
   const { error } = await supabase.from("audit_log").insert({
     acao,
-    entidade: "procuradores",
+    entidade,
     entidade_id: entidadeId,
     actor_id: atual?.user.id ?? null,
     actor_tipo: "usuario",

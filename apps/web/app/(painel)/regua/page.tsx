@@ -1,6 +1,18 @@
 import Link from "next/link";
+import { Suspense } from "react";
 
-import { Aviso, Card, Etiqueta, Tabela, Td, Th, Vazio } from "@/components/ui";
+import {
+  Aviso,
+  Cabecalho,
+  Card,
+  Esqueleto,
+  Etiqueta,
+  Indicador,
+  Tabela,
+  Td,
+  Th,
+  Vazio,
+} from "@/components/ui";
 import { criarClienteServidor, usuarioAtual } from "@/lib/supabase/server";
 import { formatarData, formatarMoeda, formatarWhatsapp } from "@/lib/validacao";
 import { estadoWhatsapp } from "@/lib/worker";
@@ -51,23 +63,16 @@ export default async function Regua() {
   const supabase = await criarClienteServidor();
   const atual = await usuarioAtual();
 
-  const [{ data: configs }, { data: avisos }, { data: mensagens }, whatsapp] =
-    await Promise.all([
-      supabase.from("configuracoes").select("chave, valor"),
-      supabase
-        .from("avisos_detalhe")
-        .select("*")
-        .order("agendado_para", { ascending: false })
-        .limit(100),
-      supabase
-        .from("mensagens")
-        .select("id, direcao, whatsapp, corpo, status, enviado_em, created_at, empresas(id, razao_social)")
-        .order("created_at", { ascending: false })
-        .limit(30),
-      estadoWhatsapp(),
-    ]);
+  const [{ data: configs }, { data: avisos }] = await Promise.all([
+    supabase.from("configuracoes_publicas").select("chave, valor"),
+    supabase
+      .from("avisos_detalhe")
+      .select("*")
+      .order("agendado_para", { ascending: false })
+      .limit(100),
+  ]);
 
-  const config = new Map((configs ?? []).map((c) => [c.chave, c.valor]));
+  const config = new Map((configs ?? []).map((c) => [c.chave ?? "", c.valor]));
   const killSwitch = config.get("regua.kill_switch") === true;
   const marcosAtivos = Array.isArray(config.get("regua.marcos"))
     ? (config.get("regua.marcos") as number[])
@@ -81,31 +86,25 @@ export default async function Regua() {
 
   return (
     <div className="space-y-5">
-      <div>
-        <h1 className="text-lg font-semibold text-tinta">Régua de cobrança</h1>
-        <p className="mt-1 text-sm text-tinta-fraca">
-          Avisos automáticos em D+{marcosAtivos.join(", D+")} a partir do vencimento do débito.
-        </p>
-      </div>
+      <Cabecalho
+        titulo="Régua de cobrança"
+        descricao={
+          marcosAtivos.length > 0
+            ? `Avisos automáticos em D+${marcosAtivos.join(", D+")} a partir do vencimento do débito.`
+            : "Nenhum marco configurado — a régua não vai gerar aviso nenhum."
+        }
+        acao={
+          <Link href="/configuracoes?aba=regua" className="text-sm text-marca underline">
+            configurar a régua
+          </Link>
+        }
+      />
 
-      {whatsapp?.modo === "mock" && (
-        <Aviso tom="atencao">
-          <strong>WhatsApp em modo mock.</strong> Os envios são registrados mas nenhuma
-          mensagem sai do worker. Para enviar de verdade, configure a Evolution API e
-          defina <code>EVOLUTION_MODO=real</code>.
-        </Aviso>
-      )}
-      {whatsapp?.modo === "real" && !whatsapp.conectada && (
-        <Aviso tom="alerta">
-          <strong>Instância do WhatsApp desconectada.</strong> Nenhum aviso será enviado até
-          alguém reconectar (ler o QR code no painel da Evolution API).
-        </Aviso>
-      )}
-      {!whatsapp && (
-        <Aviso tom="alerta">
-          O painel não conseguiu falar com o worker. Os controles abaixo não vão funcionar.
-        </Aviso>
-      )}
+      {/* O estado do WhatsApp vem do worker: isolado num Suspense para que, com o
+          worker fora, a fila de avisos apareça em vez da tela inteira esperar. */}
+      <Suspense fallback={<Esqueleto className="h-10 w-full rounded-md" />}>
+        <EstadoDoWhatsapp />
+      </Suspense>
 
       <Card titulo="Controles">
         <Controles
@@ -127,6 +126,7 @@ export default async function Regua() {
           rotulo="Falhas e cancelamentos"
           valor={String(problemas.length)}
           detalhe={problemas.length > 0 ? "veja o motivo abaixo" : undefined}
+          tom={problemas.length > 0 ? "destaque" : "neutro"}
         />
       </div>
 
@@ -173,50 +173,55 @@ export default async function Regua() {
         </Card>
       )}
 
-      <Card titulo={`Enviados (${enviados.length})`}>
+      <Card
+        titulo={`Enviados (${enviados.length})`}
+        acao={
+          <Link href="/mensagens" className="text-xs text-marca underline">
+            ver o log de mensagens
+          </Link>
+        }
+      >
         {enviados.length === 0 ? (
           <Vazio titulo="Nenhum aviso enviado ainda" />
         ) : (
           <ListaAvisos avisos={enviados} mostrarEnvio />
         )}
       </Card>
-
-      <Card titulo="Últimas mensagens">
-        {(mensagens ?? []).length === 0 ? (
-          <Vazio titulo="Nenhuma mensagem trocada" />
-        ) : (
-          <ul className="divide-y divide-linha">
-            {(mensagens ?? []).map((m) => (
-              <li key={m.id} className="py-2.5 first:pt-0 last:pb-0">
-                <div className="flex flex-wrap items-center gap-2 text-xs text-tinta-fraca">
-                  <Etiqueta tom={m.direcao === "entrada" ? "info" : "neutro"}>
-                    {m.direcao === "entrada" ? "recebida" : "enviada"}
-                  </Etiqueta>
-                  {m.empresas?.id ? (
-                    <Link href={`/empresas/${m.empresas.id}`} className="text-marca underline">
-                      {m.empresas.razao_social}
-                    </Link>
-                  ) : (
-                    <span className="tabular">{formatarWhatsapp(m.whatsapp)}</span>
-                  )}
-                  <span className="tabular">
-                    {formatarData(m.enviado_em ?? m.created_at)}
-                  </span>
-                  <Etiqueta tom={m.status === "falhou" ? "alerta" : "neutro"}>
-                    {m.status}
-                  </Etiqueta>
-                </div>
-                {/* whitespace-pre-wrap preserva as quebras de linha da mensagem,
-                    que é como o cliente a vê no WhatsApp. */}
-                <p className="mt-1 whitespace-pre-wrap text-sm text-tinta">
-                  {m.corpo.length > 400 ? `${m.corpo.slice(0, 400)}…` : m.corpo}
-                </p>
-              </li>
-            ))}
-          </ul>
-        )}
-      </Card>
     </div>
+  );
+}
+
+async function EstadoDoWhatsapp() {
+  const whatsapp = await estadoWhatsapp();
+
+  if (!whatsapp) {
+    return (
+      <Aviso tom="alerta">
+        O painel não conseguiu falar com o worker. Os controles abaixo não vão funcionar.
+      </Aviso>
+    );
+  }
+  if (whatsapp.modo === "mock") {
+    return (
+      <Aviso tom="atencao">
+        <strong>WhatsApp em modo mock.</strong> Os envios são registrados mas nenhuma mensagem
+        sai do worker. Para enviar de verdade, configure a Evolution API e defina{" "}
+        <code>EVOLUTION_MODO=real</code>.
+      </Aviso>
+    );
+  }
+  if (!whatsapp.conectada) {
+    return (
+      <Aviso tom="alerta">
+        <strong>Instância do WhatsApp desconectada.</strong> Nenhum aviso será enviado até
+        alguém reconectar (ler o QR code no painel da Evolution API).
+      </Aviso>
+    );
+  }
+  return (
+    <Aviso tom="sucesso">
+      WhatsApp conectado{whatsapp.instancia ? ` (instância ${whatsapp.instancia})` : ""}.
+    </Aviso>
   );
 }
 
@@ -276,25 +281,5 @@ function ListaAvisos({
         ))}
       </tbody>
     </Tabela>
-  );
-}
-
-function Indicador({
-  rotulo,
-  valor,
-  detalhe,
-}: {
-  rotulo: string;
-  valor: string;
-  detalhe?: string;
-}) {
-  return (
-    <div className="rounded-lg border border-linha bg-papel px-4 py-3">
-      <div className="text-xs font-medium uppercase tracking-wide text-tinta-fraca">
-        {rotulo}
-      </div>
-      <div className="mt-1 text-xl font-semibold tabular text-tinta">{valor}</div>
-      {detalhe && <div className="mt-0.5 text-xs text-tinta-fraca">{detalhe}</div>}
-    </div>
   );
 }

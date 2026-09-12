@@ -189,6 +189,70 @@ async function chamarGet<T>(caminho: string): Promise<T> {
   return (await resposta.json()) as T;
 }
 
+/**
+ * GET assinado que devolve bytes, não JSON.
+ *
+ * Existe para os PDFs guardados (DARF e relatório do e-CAC): o painel não tem
+ * credencial do Storage, então o arquivo atravessa o worker. O corpo não é
+ * interpretado aqui — o route handler o repassa ao navegador como está.
+ */
+export type ArquivoDoWorker = {
+  bytes: ArrayBuffer;
+  contentType: string;
+  nomeArquivo: string | null;
+};
+
+async function chamarGetBinario(caminho: string): Promise<ArquivoDoWorker> {
+  const timestamp = (Date.now() / 1000).toString();
+  const assinatura = assinar("GET", caminho, Buffer.alloc(0), timestamp);
+
+  const resposta = await fetch(`${baseUrl()}${caminho}`, {
+    method: "GET",
+    headers: {
+      "x-vrf-timestamp": timestamp,
+      "x-vrf-signature": assinatura,
+    },
+    cache: "no-store",
+  });
+
+  if (!resposta.ok) {
+    throw new WorkerError(resposta.status, await extrairDetalhe(resposta));
+  }
+
+  return {
+    bytes: await resposta.arrayBuffer(),
+    contentType: resposta.headers.get("content-type") ?? "application/octet-stream",
+    nomeArquivo: nomeNoCabecalho(resposta.headers.get("content-disposition")),
+  };
+}
+
+/**
+ * Extrai o nome do arquivo do `Content-Disposition`.
+ *
+ * O valor é recortado e higienizado antes de voltar ao navegador: ele vem de um
+ * cabeçalho e termina dentro de outro cabeçalho, e uma quebra de linha ali seria
+ * injeção de cabeçalho na resposta do painel.
+ */
+function nomeNoCabecalho(valor: string | null): string | null {
+  if (!valor) return null;
+  const achado = /filename="?([^";]+)"?/i.exec(valor);
+  if (!achado?.[1]) return null;
+  const limpo = achado[1].replace(/[^\w.\-]/g, "_").slice(0, 120);
+  return limpo || null;
+}
+
+/** PDF de um DARF já emitido. */
+export async function baixarPdfDarf(darfId: string): Promise<ArquivoDoWorker> {
+  return chamarGetBinario(`/internal/darfs/${encodeURIComponent(darfId)}/pdf`);
+}
+
+/** PDF do Relatório de Situação Fiscal de uma consulta. */
+export async function baixarRelatorioConsulta(consultaId: string): Promise<ArquivoDoWorker> {
+  return chamarGetBinario(
+    `/internal/consultas/${encodeURIComponent(consultaId)}/relatorio`,
+  );
+}
+
 export type ResultadoSincronizacao = {
   ok: boolean;
   status: "concluido" | "aguardando" | "erro" | "expirado" | "pulado";

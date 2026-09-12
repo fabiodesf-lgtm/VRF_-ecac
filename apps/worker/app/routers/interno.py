@@ -13,10 +13,13 @@ from __future__ import annotations
 
 import logging
 from typing import Annotated
+from uuid import UUID
 
-from fastapi import APIRouter, File, Form, HTTPException, UploadFile, status
+from fastapi import APIRouter, File, Form, HTTPException, Response, UploadFile, status
+from sqlalchemy import text
 
 from app.darf.emissao import EmissaoImpossivel, aprovar_darf
+from app.db import transacao
 from app.deps import EngineDep, IntegraDep, SettingsDep, StorageDep, WhatsappDep
 from app.integra.base import IntegraError
 from app.lgpd.anonimizacao import AnonimizacaoImpossivel, anonimizar_empresa
@@ -32,6 +35,7 @@ from app.services.sincronizacao import (
     reprocessar_relatorio,
     sincronizar_empresa,
 )
+from app.storage import CaminhoInvalido
 
 log = logging.getLogger(__name__)
 
@@ -360,3 +364,125 @@ async def whatsapp_estado(whatsapp: WhatsappDep, settings: SettingsDep) -> dict[
         "instancia": settings.evolution_instance or None,
         "conectada": await whatsapp.conectada(),
     }
+
+
+# ───────────────────────────────────────────────────────────────────────────
+# Arquivos guardados (PDF do DARF e relatório do e-CAC)
+#
+# O painel não alcança o Storage — quem tem as credenciais é o worker. Estas
+# rotas existem para que o DARF emitido e o relatório coletado cheguem a quem
+# opera, em vez de ficarem num bucket que só o worker enxerga.
+#
+# **O caminho do arquivo nunca vem do chamador.** A rota recebe o id do registro
+# e busca o `pdf_storage_path` no banco. Aceitar um caminho livre daria ao painel
+# uma rota de leitura para o bucket inteiro — e é nesse mesmo bucket que os
+# certificados A1 cifrados ficam guardados.
+# ───────────────────────────────────────────────────────────────────────────
+
+
+def _uuid_ou_404(valor: str, *, o_que: str) -> str:
+    """Recusa id fora do formato antes de chegar ao banco.
+
+    Sem isto, um id qualquer na URL viraria erro de tipo do Postgres e sairia
+    como 500 — dizendo "quebrou" onde a resposta certa é "não existe".
+    """
+    try:
+        return str(UUID(valor))
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"{o_que} não encontrado") from exc
+
+
+async def _servir_pdf(storage: StorageDep, caminho: str, nome: str) -> Response:
+    try:
+        conteudo = await storage.ler(caminho)
+    except CaminhoInvalido as exc:
+        # Caminho inválido no banco é defeito de quem gravou, não do pedido.
+        log.error("caminho de armazenamento inválido em %s: %s", nome, exc)
+        raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, "caminho inválido") from exc
+    except FileNotFoundError as exc:
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND, "o arquivo não está mais no armazenamento"
+        ) from exc
+
+    return Response(
+        content=conteudo,
+        media_type="application/pdf",
+        headers={
+            "content-disposition": f'attachment; filename="{nome}"',
+            # Documento fiscal de cliente não fica em cache de intermediário.
+            "cache-control": "private, no-store",
+        },
+    )
+
+
+@router.get("/darfs/{darf_id}/pdf")
+async def baixar_darf(darf_id: str, engine: EngineDep, storage: StorageDep) -> Response:
+    """Devolve o PDF de um DARF já emitido."""
+    identificador = _uuid_ou_404(darf_id, o_que="DARF")
+
+    async with transacao(engine) as conexao:
+        linha = (
+            (
+                await conexao.execute(
+                    text(
+                        """
+                    select d.pdf_storage_path, d.data_consolidacao, e.cnpj
+                      from public.darfs d
+                      join public.empresas e on e.id = d.empresa_id
+                     where d.id = :id
+                    """
+                    ),
+                    {"id": identificador},
+                )
+            )
+            .mappings()
+            .first()
+        )
+
+    if linha is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "DARF não encontrado")
+    if not linha["pdf_storage_path"]:
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND,
+            "este DARF ainda não tem documento emitido",
+        )
+
+    nome = f"darf-{linha['cnpj']}-{linha['data_consolidacao']}.pdf"
+    return await _servir_pdf(storage, str(linha["pdf_storage_path"]), nome)
+
+
+@router.get("/consultas/{consulta_id}/relatorio")
+async def baixar_relatorio(consulta_id: str, engine: EngineDep, storage: StorageDep) -> Response:
+    """Devolve o PDF do Relatório de Situação Fiscal de uma consulta."""
+    identificador = _uuid_ou_404(consulta_id, o_que="consulta")
+
+    async with transacao(engine) as conexao:
+        linha = (
+            (
+                await conexao.execute(
+                    text(
+                        """
+                    select c.pdf_storage_path, c.iniciado_em, e.cnpj
+                      from public.sitfis_consultas c
+                      join public.empresas e on e.id = c.empresa_id
+                     where c.id = :id
+                    """
+                    ),
+                    {"id": identificador},
+                )
+            )
+            .mappings()
+            .first()
+        )
+
+    if linha is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "consulta não encontrada")
+    if not linha["pdf_storage_path"]:
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND,
+            "não há relatório guardado para esta consulta",
+        )
+
+    data = linha["iniciado_em"].date().isoformat()
+    nome = f"situacao-fiscal-{linha['cnpj']}-{data}.pdf"
+    return await _servir_pdf(storage, str(linha["pdf_storage_path"]), nome)

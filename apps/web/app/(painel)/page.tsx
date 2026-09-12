@@ -1,6 +1,20 @@
 import Link from "next/link";
+import { Suspense } from "react";
 
-import { Aviso, Card, Etiqueta, Tabela, Td, Th, Vazio } from "@/components/ui";
+import {
+  Aviso,
+  Cabecalho,
+  Card,
+  Descricao,
+  Esqueleto,
+  Etiqueta,
+  Indicador,
+  Item,
+  Tabela,
+  Td,
+  Th,
+  Vazio,
+} from "@/components/ui";
 import { FAIXAS, FAIXAS_ORDENADAS, type FaixaAtraso } from "@/lib/faixas";
 import { criarClienteServidor } from "@/lib/supabase/server";
 import { formatarData, formatarMoeda } from "@/lib/validacao";
@@ -11,7 +25,7 @@ export const dynamic = "force-dynamic";
 export default async function Inicio() {
   const supabase = await criarClienteServidor();
 
-  const [faixas, resumos, tarefas, consultas, saude] = await Promise.all([
+  const [faixas, resumos, tarefas, consultas] = await Promise.all([
     supabase.from("resumo_faixas").select("*"),
     supabase
       .from("empresas_resumo")
@@ -29,7 +43,6 @@ export default async function Inicio() {
       .select("id, status, parse_status, iniciado_em")
       .order("iniciado_em", { ascending: false })
       .limit(50),
-    saudeWorker(),
   ]);
 
   const porFaixa = new Map<FaixaAtraso, { qtd: number; total: number; cobravel: number }>();
@@ -62,24 +75,19 @@ export default async function Inicio() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-lg font-semibold text-tinta">Visão geral</h1>
-        <p className="mt-1 text-sm text-tinta-fraca">
-          Situação dos débitos e da operação de cobrança.
-        </p>
-      </div>
+      <Cabecalho
+        titulo="Visão geral"
+        descricao="Situação dos débitos e da operação de cobrança."
+      />
 
       <Aviso tom="atencao">
-        <strong>Sistema completo, travas fechadas.</strong> Cadastros, coleta no e-CAC, régua de
-        cobrança, bot de resposta e DARF via SICALC estão implementados. Antes de apontar para
-        clientes de verdade:{" "}
-        <strong>
-          o leitor do relatório do e-CAC só foi conferido contra um relatório real da seção
-          de débito comum (SIEF) — as demais seções (parcelamento, dívida ativa, exigibilidade
-          suspensa) ainda não
-        </strong>
-        , o envio pelo WhatsApp começa em modo de teste e toda emissão de DARF está em aprovação
-        manual. O que falta conferir está em <strong>Operação</strong>.
+        <strong>Sistema completo, travas fechadas.</strong> O leitor do relatório do e-CAC só foi
+        conferido contra a seção de débito comum (SIEF), o envio pelo WhatsApp começa em modo de
+        teste e toda emissão de DARF está em aprovação manual. O que falta conferir está em{" "}
+        <Link href="/operacao" className="font-medium underline">
+          Operação
+        </Link>
+        .
       </Aviso>
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -97,6 +105,7 @@ export default async function Inicio() {
           rotulo="Débitos a conferir"
           valor={String(totalConferir)}
           detalhe={totalConferir > 0 ? "fora da cobrança automática" : "nenhum"}
+          tom={totalConferir > 0 ? "destaque" : "neutro"}
         />
         <Indicador
           rotulo="Consultas ao e-CAC"
@@ -110,7 +119,10 @@ export default async function Inicio() {
           {semSincronizacao.length > 0 && (
             <span className="block">
               {semSincronizacao.length} empresa(s) ativa(s) nunca foram sincronizadas — o
-              sistema não conhece os débitos delas.
+              sistema não conhece os débitos delas.{" "}
+              <Link href="/empresas?situacao=sem_sincronizacao" className="font-medium underline">
+                ver quais
+              </Link>
             </span>
           )}
           {comProblema.length > 0 && (
@@ -138,7 +150,8 @@ export default async function Inicio() {
                     {FAIXAS[faixa].curto}
                   </span>
                   {/* Barra proporcional: comparar faixas é mais rápido visualmente
-                      do que ler sete números. */}
+                      do que ler sete números. A leitura por voz vem do texto ao
+                      lado, então a barra é decoração. */}
                   <span
                     className="h-5 shrink-0 rounded-sm"
                     style={{
@@ -153,7 +166,16 @@ export default async function Inicio() {
                     }}
                     aria-hidden
                   />
-                  <span className="tabular text-tinta">{formatarMoeda(dados.total)}</span>
+                  {dados.total > 0 ? (
+                    <Link
+                      href={`/debitos?faixa=${faixa}`}
+                      className="tabular text-tinta underline decoration-linha hover:decoration-tinta"
+                    >
+                      {formatarMoeda(dados.total)}
+                    </Link>
+                  ) : (
+                    <span className="tabular text-tinta-fraca">—</span>
+                  )}
                   <span className="text-xs text-tinta-fraca">
                     {dados.qtd} débito{dados.qtd === 1 ? "" : "s"}
                   </span>
@@ -239,66 +261,62 @@ export default async function Inicio() {
             )}
           </Card>
 
-          <Card titulo="Estado do sistema">
-            <dl className="space-y-2.5 text-sm">
-              <Linha rotulo="Worker">
-                {saude ? (
-                  <Etiqueta tom={saude.ok ? "sucesso" : "alerta"}>
-                    {saude.ok ? "no ar" : "banco inacessível"}
-                  </Etiqueta>
-                ) : (
-                  <Etiqueta tom="alerta">inacessível</Etiqueta>
-                )}
-              </Linha>
-              <Linha rotulo="Integra Contador">
-                {saude?.integra_provider === "serpro" ? (
-                  <Etiqueta tom="sucesso">API SERPRO</Etiqueta>
-                ) : (
-                  <Etiqueta tom="atencao">mock (API não contratada)</Etiqueta>
-                )}
-              </Linha>
-              <Linha rotulo="Armazenamento">
-                <Etiqueta>{saude?.storage_backend ?? "—"}</Etiqueta>
-              </Linha>
-            </dl>
-            {!saude && (
-              <p className="mt-3 text-xs text-tinta-fraca">
-                O painel não conseguiu falar com o worker. Envio de certificado e consultas ao
-                e-CAC ficam indisponíveis até ele voltar.
-              </p>
-            )}
-          </Card>
+          {/* O worker fica fora do Promise.all acima: ele tem timeout de cinco
+              segundos e, estando fora do ar, prenderia a tela inteira esperando
+              por um cartão. Aqui o banco pinta a página e só este bloco espera. */}
+          <Suspense fallback={<CartaoEstadoCarregando />}>
+            <EstadoDoSistema />
+          </Suspense>
         </div>
       </div>
     </div>
   );
 }
 
-function Indicador({
-  rotulo,
-  valor,
-  detalhe,
-}: {
-  rotulo: string;
-  valor: string;
-  detalhe?: string;
-}) {
+async function EstadoDoSistema() {
+  const saude = await saudeWorker();
+
   return (
-    <div className="rounded-lg border border-linha bg-papel px-4 py-3">
-      <div className="text-xs font-medium uppercase tracking-wide text-tinta-fraca">
-        {rotulo}
-      </div>
-      <div className="mt-1 text-xl font-semibold tabular text-tinta">{valor}</div>
-      {detalhe && <div className="mt-0.5 text-xs text-tinta-fraca">{detalhe}</div>}
-    </div>
+    <Card titulo="Estado do sistema">
+      <Descricao>
+        <Item rotulo="Worker">
+          {saude ? (
+            <Etiqueta tom={saude.ok ? "sucesso" : "alerta"}>
+              {saude.ok ? "no ar" : "banco inacessível"}
+            </Etiqueta>
+          ) : (
+            <Etiqueta tom="alerta">inacessível</Etiqueta>
+          )}
+        </Item>
+        <Item rotulo="Integra Contador">
+          {saude?.integra_provider === "serpro" ? (
+            <Etiqueta tom="sucesso">API SERPRO</Etiqueta>
+          ) : (
+            <Etiqueta tom="atencao">mock (API não contratada)</Etiqueta>
+          )}
+        </Item>
+        <Item rotulo="Armazenamento">
+          <Etiqueta>{saude?.storage_backend ?? "—"}</Etiqueta>
+        </Item>
+      </Descricao>
+      {!saude && (
+        <p className="mt-3 text-xs text-tinta-fraca">
+          O painel não conseguiu falar com o worker. Envio de certificado e consultas ao
+          e-CAC ficam indisponíveis até ele voltar.
+        </p>
+      )}
+    </Card>
   );
 }
 
-function Linha({ rotulo, children }: { rotulo: string; children: React.ReactNode }) {
+function CartaoEstadoCarregando() {
   return (
-    <div className="flex items-center justify-between gap-3">
-      <dt className="text-tinta-fraca">{rotulo}</dt>
-      <dd>{children}</dd>
-    </div>
+    <Card titulo="Estado do sistema">
+      <div className="space-y-3">
+        <Esqueleto className="h-3 w-full" />
+        <Esqueleto className="h-3 w-4/5" />
+        <Esqueleto className="h-3 w-3/5" />
+      </div>
+    </Card>
   );
 }

@@ -25,7 +25,11 @@ está funcionando hoje?" e costuma nomear o problema antes de você procurá-lo.
 
 ## O freio de mão
 
-Antes de investigar qualquer coisa que esteja **saindo errado**, pare a saída:
+Antes de investigar qualquer coisa que esteja **saindo errado**, pare a saída.
+
+No painel, em **Régua**, o botão _Parar tudo (kill switch)_ — é o caminho mais
+rápido, e fica registrado na auditoria com o nome de quem acionou. Sem acesso ao
+painel, direto no banco:
 
 ```sql
 update public.configuracoes set valor = 'true'::jsonb where chave = 'regua.kill_switch';
@@ -177,7 +181,8 @@ Sintoma: cliente recebeu DARF com valor ou receita que não fecha.
 Isto é mais sério que uma mensagem errada: o dinheiro pode ir para o lugar
 errado.
 
-1. **Freie a emissão automática agora:**
+1. **Freie a emissão automática agora:** em **Configurações → DARF**, ponha o
+   teto em `0`; ou, sem painel:
    ```sql
    update public.configuracoes set valor = '0'::jsonb where chave = 'darf.teto_valor';
    ```

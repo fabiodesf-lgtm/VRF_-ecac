@@ -1,4 +1,4 @@
-import Link from "next/link";
+import { Cabecalho } from "@/components/ui";
 
 import { criarClienteServidor } from "@/lib/supabase/server";
 import { criarEmpresa } from "../acoes";
@@ -23,12 +23,11 @@ export default async function NovaEmpresa() {
 
   return (
     <div className="space-y-5">
-      <div>
-        <Link href="/empresas" className="text-sm text-tinta-fraca underline">
-          ← Empresas
-        </Link>
-        <h1 className="mt-2 text-lg font-semibold text-tinta">Nova empresa</h1>
-      </div>
+      <Cabecalho
+        voltar={{ href: "/empresas", rotulo: "Empresas" }}
+        titulo="Nova empresa"
+        descricao="O cadastro é o que põe a empresa na coleta diária de débitos."
+      />
       <FormularioEmpresa acao={criarEmpresa} procuradores={procuradores} />
     </div>
   );

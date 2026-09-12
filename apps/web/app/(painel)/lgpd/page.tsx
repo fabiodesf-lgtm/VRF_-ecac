@@ -1,4 +1,16 @@
-import { Aviso, Card, Etiqueta, Tabela, Td, Th, Vazio } from "@/components/ui";
+import Link from "next/link";
+
+import {
+  Aviso,
+  Cabecalho,
+  Card,
+  Etiqueta,
+  Indicador,
+  Tabela,
+  Td,
+  Th,
+  Vazio,
+} from "@/components/ui";
 import { criarClienteServidor, usuarioAtual } from "@/lib/supabase/server";
 import { formatarCnpj, formatarData } from "@/lib/validacao";
 import { Anonimizar, AtenderSolicitacao, ExportarDados, NovaSolicitacao, Retencao } from "./formularios";
@@ -30,7 +42,7 @@ export default async function Lgpd() {
       .from("empresas")
       .select("id, cnpj, razao_social, anonimizado_em, encerrado_em, opt_out_em")
       .order("razao_social"),
-    supabase.from("configuracoes").select("chave, valor").like("chave", "lgpd.%"),
+    supabase.from("configuracoes_publicas").select("chave, valor").like("chave", "lgpd.%"),
   ]);
 
   const pedidos = solicitacoes ?? [];
@@ -44,16 +56,38 @@ export default async function Lgpd() {
     .map((e) => ({ id: e.id, nome: e.razao_social }));
   const anonimizadas = todas.filter((e) => e.anonimizado_em);
 
-  const valores = new Map((config ?? []).map((c) => [c.chave, c.valor]));
+  const valores = new Map((config ?? []).map((c) => [c.chave ?? "", c.valor]));
   const retencaoAtiva = valores.get("lgpd.retencao_ativa") === true;
 
   return (
     <div className="space-y-5">
-      <div>
-        <h1 className="text-lg font-semibold text-tinta">LGPD</h1>
-        <p className="mt-1 text-sm text-tinta-fraca">
-          Pedidos de titular, exportação de dados e política de retenção.
-        </p>
+      <Cabecalho
+        titulo="LGPD"
+        descricao="Pedidos de titular, exportação de dados e política de retenção."
+        acao={
+          <Link href="/configuracoes?aba=lgpd" className="text-sm text-marca underline">
+            configurar os prazos
+          </Link>
+        }
+      />
+
+      <div className="grid gap-4 sm:grid-cols-3">
+        <Indicador
+          rotulo="Pedidos em aberto"
+          valor={String(abertos.length)}
+          detalhe={`prazo de ${abertos.length === 1 ? "resposta" : "resposta"}: 15 dias`}
+        />
+        <Indicador
+          rotulo="Fora do prazo"
+          valor={String(atrasados.length)}
+          detalhe={atrasados.length > 0 ? "exposição direta do escritório" : "nenhum"}
+          tom={atrasados.length > 0 ? "destaque" : "neutro"}
+        />
+        <Indicador
+          rotulo="Clientes anonimizados"
+          valor={String(anonimizadas.length)}
+          detalhe="contato apagado, registro fiscal preservado"
+        />
       </div>
 
       {atrasados.length > 0 && (
@@ -147,8 +181,11 @@ export default async function Lgpd() {
             <Aviso tom="atencao">
               A retenção automática está <strong>desligada</strong>. Ela nasce assim de
               propósito: apagar é irreversível, e os prazos devem ser conferidos com o
-              jurídico antes do primeiro expurgo. Ligue em <code>lgpd.retencao_ativa</code>{" "}
-              quando estiverem definidos.
+              jurídico antes do primeiro expurgo. Quando estiverem definidos, ligue em{" "}
+              <Link href="/configuracoes?aba=lgpd" className="font-medium underline">
+                Configurações → LGPD
+              </Link>
+              .
             </Aviso>
           </div>
         )}
@@ -165,10 +202,12 @@ export default async function Lgpd() {
             </thead>
             <tbody>
               {(config ?? [])
-                .filter((c) => c.chave !== "lgpd.retencao_ativa")
+                .filter((c) => c.chave && c.chave !== "lgpd.retencao_ativa")
                 .map((c) => (
                   <tr key={c.chave}>
-                    <Td>{c.chave.replace("lgpd.retencao_", "").replace(/_/g, " ")}</Td>
+                    <Td>
+                      {(c.chave ?? "").replace("lgpd.retencao_", "").replace(/_/g, " ")}
+                    </Td>
                     <Td alinhar="direita">{String(c.valor)}</Td>
                   </tr>
                 ))}

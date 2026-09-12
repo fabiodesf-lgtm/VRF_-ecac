@@ -8,19 +8,33 @@ import { Aviso, Botao, Campo, Card, Entrada, Selecao } from "@/components/ui";
 import { documentoValido, formatarDocumento, soDigitos } from "@/lib/validacao";
 import type { ResultadoAcao } from "./acoes";
 
+export type ValoresProcurador = {
+  nome: string;
+  cpf_cnpj: string;
+  tipo: "ecpf" | "ecnpj";
+  observacao: string;
+};
+
 export function FormularioProcurador({
   acao,
+  valoresIniciais,
+  rotuloEnvio = "Cadastrar procurador",
+  /** Na criação vamos para o detalhe (onde se envia o certificado); na edição, não. */
+  irParaDetalhe = true,
 }: {
   acao: (anterior: unknown, dados: FormData) => Promise<ResultadoAcao>;
+  valoresIniciais?: ValoresProcurador;
+  rotuloEnvio?: string;
+  irParaDetalhe?: boolean;
 }) {
   const router = useRouter();
   const [estado, enviar, enviando] = useActionState(acao, null as ResultadoAcao | null);
-  const [documento, setDocumento] = useState("");
-  const [tipo, setTipo] = useState<"ecpf" | "ecnpj">("ecpf");
+  const [documento, setDocumento] = useState(valoresIniciais?.cpf_cnpj ?? "");
+  const [tipo, setTipo] = useState<"ecpf" | "ecnpj">(valoresIniciais?.tipo ?? "ecpf");
 
   useEffect(() => {
-    if (estado?.ok && estado.id) router.push(`/procuradores/${estado.id}`);
-  }, [estado, router]);
+    if (irParaDetalhe && estado?.ok && estado.id) router.push(`/procuradores/${estado.id}`);
+  }, [estado, router, irParaDetalhe]);
 
   const digitos = soDigitos(documento);
   const completo = digitos.length === 11 || digitos.length === 14;
@@ -32,6 +46,7 @@ export function FormularioProcurador({
     <Card>
       <form action={enviar} className="space-y-5">
         {estado && !estado.ok && <Aviso tom="alerta">{estado.erro}</Aviso>}
+        {estado?.ok && estado.mensagem && <Aviso tom="sucesso">{estado.mensagem}</Aviso>}
 
         <Campo
           label="Nome do procurador"
@@ -39,7 +54,13 @@ export function FormularioProcurador({
           erro={estado && !estado.ok ? estado.campos?.nome : undefined}
           dica="Como consta no certificado digital."
         >
-          <Entrada name="nome" required autoFocus placeholder="JOÃO DA SILVA" />
+          <Entrada
+            name="nome"
+            defaultValue={valoresIniciais?.nome}
+            required
+            autoFocus={!valoresIniciais}
+            placeholder="JOÃO DA SILVA"
+          />
         </Campo>
 
         <div className="grid gap-4 sm:grid-cols-2">
@@ -86,16 +107,23 @@ export function FormularioProcurador({
         </div>
 
         <Campo label="Observação">
-          <Entrada name="observacao" placeholder="Ex.: sócio responsável pelas consultas" />
+          <Entrada
+            name="observacao"
+            defaultValue={valoresIniciais?.observacao}
+            placeholder="Ex.: sócio responsável pelas consultas"
+          />
         </Campo>
 
-        <Aviso tom="info">
-          Depois de cadastrar, a próxima tela pede o upload do certificado digital A1 e a senha.
-        </Aviso>
+        {!valoresIniciais && (
+          <Aviso tom="info">
+            Depois de cadastrar, a próxima tela pede o upload do certificado digital A1 e a
+            senha.
+          </Aviso>
+        )}
 
         <div className="flex items-center gap-3">
           <Botao type="submit" disabled={enviando}>
-            {enviando ? "Salvando…" : "Cadastrar procurador"}
+            {enviando ? "Salvando…" : rotuloEnvio}
           </Botao>
           <Link href="/procuradores" className="text-sm text-tinta-fraca underline">
             Cancelar
